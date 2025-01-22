@@ -14,12 +14,7 @@ review_rating_prob = np.array([0.3, 0.6, 0.1])
 s_min = 0.1
 s_max = 365 * 3
 # Adaptive step size
-s_state = []
-s = s_min
-while s <= s_max:
-    s_state.append(s)
-    s = s * (2 ** (1 / 5))
-s_state = np.asarray(s_state)
+s_state = np.exp(np.arange(np.log(s_min), np.log(s_max) + 1e-10, np.log(2) / 5))
 s_size = len(s_state)
 
 d_min = 1
