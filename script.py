@@ -320,7 +320,7 @@ for r in r_range:
     ax.set_title(f"Desired Retention: {avg_retention:.2f}")
     ax.set_box_aspect(None, zoom=0.8)
     plt.tight_layout()
-    plt.savefig(f"./plot/R={r * 100:.2f}_cost.png")
+    plt.savefig(f"./plot/DR={r:.2f}.png")
 
 fig = plt.figure(figsize=(8, 8))
 ax = fig.add_subplot(111)
