@@ -13,15 +13,15 @@ review_rating_prob = np.array([0.3, 0.6, 0.1])
 
 s_min = 0.1
 s_max = 365 * 3
-short_step = np.log(2) / 5
+short_step = np.log(2) / 15
 long_step = 1
 s_mid = long_step / (1 - np.exp(-short_step))
 # Adaptive step size
 s_state_small = np.exp(np.arange(np.log(s_min), np.log(s_mid), short_step))
 s_state_large = np.arange(max(s_state_small) + long_step, s_max, long_step)
 s_state = np.concatenate([s_state_small, s_state_large])
-np.set_printoptions(suppress=True, precision=3, threshold=10000)
-print(s_state)
+# np.set_printoptions(suppress=True, precision=3, threshold=10000)
+# print(s_state)
 s_size = len(s_state)
 
 d_min = 1
