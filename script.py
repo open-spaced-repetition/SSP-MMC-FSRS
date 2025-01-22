@@ -321,3 +321,15 @@ for r in r_range:
     ax.set_box_aspect(None, zoom=0.8)
     plt.tight_layout()
     plt.savefig(f"./plot/R={r * 100:.2f}_cost.png")
+
+fig = plt.figure(figsize=(8, 8))
+ax = fig.add_subplot(111)
+optimal_retention = r_range[np.argmin(costs)]
+min_cost = np.min(costs)
+ax.plot(r_range, costs)
+ax.set_xlabel("Desired Retention")
+ax.set_ylabel("Average Cost")
+ax.set_title(
+    f"Optimal Retention: {optimal_retention * 100:.2f}%, Min Cost: {min_cost:.2f}"
+)
+plt.savefig("./plot/cost_vs_retention.png")
