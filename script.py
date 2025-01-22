@@ -13,8 +13,15 @@ review_rating_prob = np.array([0.3, 0.6, 0.1])
 
 s_min = 0.1
 s_max = 365 * 3
+short_step = np.log(2) / 5
+long_step = 1
+s_mid = long_step / (1 - np.exp(-short_step))
 # Adaptive step size
-s_state = np.exp(np.arange(np.log(s_min), np.log(s_max) + 1e-10, np.log(2) / 5))
+s_state_small = np.exp(np.arange(np.log(s_min), np.log(s_mid), short_step))
+s_state_large = np.arange(max(s_state_small) + long_step, s_max, long_step)
+s_state = np.concatenate([s_state_small, s_state_large])
+np.set_printoptions(suppress=True, precision=3, threshold=10000)
+print(s_state)
 s_size = len(s_state)
 
 d_min = 1
@@ -310,14 +317,14 @@ for r in r_range:
     ax.set_xlabel("Stability")
     ax.set_ylabel("Difficulty")
     ax.set_zlabel("Cost")
-    ax.set_title(f"Retention: {r * 100:.2f}%, Avg Cost: {avg_cost:.2f}")
+    ax.set_title(f"Desired Retention: {r * 100:.2f}%, Avg Cost: {avg_cost:.2f}")
     ax.set_box_aspect(None, zoom=0.8)
     ax = fig.add_subplot(122, projection="3d")
     ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, r_state_mesh, cmap="viridis")
     ax.set_xlabel("Stability")
     ax.set_ylabel("Difficulty")
     ax.set_zlabel("Retention")
-    ax.set_title(f"Desired Retention: {avg_retention:.2f}")
+    ax.set_title(f"True Retention: {avg_retention:.2f}")
     ax.set_box_aspect(None, zoom=0.8)
     plt.tight_layout()
     plt.savefig(f"./plot/DR={r:.2f}.png")
