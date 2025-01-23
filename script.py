@@ -258,32 +258,44 @@ plt.tight_layout()
 plt.savefig("./plot/SSP-MMC.png")
 
 
-def plot_optimal_retention_vs_stability(init_rating):
+def optimal_policy_for_rating_sequence(rating_sequence: list[int]):
     s_list = []
     r_list = []
     ivl_list = []
+    g_list = []
+    for i, rating in enumerate(rating_sequence):
+        g_list.append(rating)
+        if i == 0:
+            d_index, s_index = d2i(init_difficulty[rating - 1]), s2i(
+                init_stability[rating - 1]
+            )
+            cur_s = s_state[s_index]
+            cur_d = d_state[d_index]
+        else:
+            optimal_r = retention_matrix[d_index, s_index]
+            s_list.append(cur_s)
+            r_list.append(optimal_r)
+            ivl_list.append(next_interval(cur_s, optimal_r))
+            cur_s = stability_after_success(cur_s, cur_d, optimal_r, rating)
+            cur_d = next_difficulty(cur_d, rating)
+            d_index, s_index = d2i(cur_d), s2i(cur_s)
 
-    d_index, s_index = d2i(init_difficulty[init_rating - 1]), s2i(
-        init_stability[init_rating - 1]
+        if cur_s > s_max:
+            break
+
+    return s_list, r_list, ivl_list, g_list
+
+
+def plot_optimal_policy_vs_stability(rating_sequence: list[int]):
+    s_list, r_list, ivl_list, g_list = optimal_policy_for_rating_sequence(
+        rating_sequence
     )
-    cur_s = s_state[s_index]
-    cur_d = d_state[d_index]
-
-    while cur_s < s_max:
-        optimal_r = retention_matrix[d_index, s_index]
-        s_list.append(cur_s)
-        r_list.append(optimal_r)
-        ivl_list.append(next_interval(cur_s, optimal_r))
-        cur_s = stability_after_success(cur_s, cur_d, optimal_r, 3)
-        cur_d = next_difficulty(cur_d, 3)
-        d_index, s_index = d2i(cur_d), s2i(cur_s)
-
     fig = plt.figure(figsize=(16, 8.5))
     ax = fig.add_subplot(121)
     ax.plot(s_list, r_list, "*-")
     ax.set_xlabel("Stability")
     ax.set_ylabel("Optimal Retention")
-    ax.set_title(f"Optimal Retention vs Stability for Initial Rating {init_rating}")
+    ax.set_title(f"Optimal Retention vs Stability")
     ax = fig.add_subplot(122)
     ax.plot(s_list, ivl_list, "*-", label="Optimal")
     ax.plot(s_list, s_list, "--", alpha=0.5, label="R=90%")
@@ -291,14 +303,15 @@ def plot_optimal_retention_vs_stability(init_rating):
         ax.text(s + 1, ivl - 10, f"{ivl:.0f}", fontsize=10)
     ax.set_xlabel("Stability")
     ax.set_ylabel("Optimal Interval")
-    ax.set_title(f"Optimal Interval vs Stability for Initial Rating {init_rating}")
+    ax.set_title(f"Optimal Interval vs Stability")
     ax.legend()
+    fig.suptitle(f"Rating Sequence: {','.join(map(str, g_list))}")
     plt.tight_layout()
-    plt.savefig(f"./plot/OR-OI-{init_rating}.png")
+    plt.savefig(f"./plot/OR-OI-{','.join(map(str, g_list))}.png")
 
 
 for rating in range(1, 5):
-    plot_optimal_retention_vs_stability(rating)
+    plot_optimal_policy_vs_stability([rating] + [3 for _ in range(100)])
 
 
 costs = []
