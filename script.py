@@ -105,7 +105,7 @@ def next_difficulty(d, g):
     return mean_reversion(w[4], d - w[6] * (g - 3))
 
 
-# stability to index
+# stability to indexes
 def s2i(s):
     # Vectorized version for array input
     result = np.zeros_like(s, dtype=int)
@@ -130,14 +130,14 @@ def s2i(s):
     return result
 
 
-# difficulty to index
+# difficulty to indexes
 def d2i(d):
     return np.clip(
         np.floor((d - d_min) / (d_max - d_min) * d_size).astype(int), 0, d_size - 1
     )
 
 
-# retention to index
+# retention to indexes
 def r2i(r):
     return np.clip(
         np.floor((r - r_min) / (r_max - r_min) * r_size).astype(int), 0, r_size - 1
@@ -145,8 +145,6 @@ def r2i(r):
 
 
 # indexes to cost
-
-
 def i2c(s, d):
     return cost_matrix[d2i(d), s2i(s)]
 
@@ -258,6 +256,50 @@ ax.set_title("Interval")
 ax.set_box_aspect(None, zoom=0.8)
 plt.tight_layout()
 plt.savefig("./plot/SSP-MMC.png")
+
+
+def plot_optimal_retention_vs_stability(init_rating):
+    s_list = []
+    r_list = []
+    ivl_list = []
+
+    d_index, s_index = d2i(init_difficulty[init_rating - 1]), s2i(
+        init_stability[init_rating - 1]
+    )
+    cur_s = s_state[s_index]
+    cur_d = d_state[d_index]
+
+    while cur_s < s_max:
+        optimal_r = retention_matrix[d_index, s_index]
+        s_list.append(cur_s)
+        r_list.append(optimal_r)
+        ivl_list.append(next_interval(cur_s, optimal_r))
+        cur_s = stability_after_success(cur_s, cur_d, optimal_r, 3)
+        cur_d = next_difficulty(cur_d, 3)
+        d_index, s_index = d2i(cur_d), s2i(cur_s)
+
+    fig = plt.figure(figsize=(16, 8.5))
+    ax = fig.add_subplot(121)
+    ax.plot(s_list, r_list, "*-")
+    ax.set_xlabel("Stability")
+    ax.set_ylabel("Optimal Retention")
+    ax.set_title(f"Optimal Retention vs Stability for Initial Rating {init_rating}")
+    ax = fig.add_subplot(122)
+    ax.plot(s_list, ivl_list, "*-", label="Optimal")
+    ax.plot(s_list, s_list, "--", alpha=0.5, label="R=90%")
+    for s, ivl in zip(s_list, ivl_list):
+        ax.text(s + 1, ivl - 10, f"{ivl:.0f}", fontsize=10)
+    ax.set_xlabel("Stability")
+    ax.set_ylabel("Optimal Interval")
+    ax.set_title(f"Optimal Interval vs Stability for Initial Rating {init_rating}")
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(f"./plot/OR-OI-{init_rating}.png")
+
+
+for rating in range(1, 5):
+    plot_optimal_retention_vs_stability(rating)
+
 
 costs = []
 
