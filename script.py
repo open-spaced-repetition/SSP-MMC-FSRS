@@ -13,10 +13,11 @@ review_rating_prob = np.array([0.3, 0.6, 0.1])
 
 s_min = 0.1
 s_max = 365 * 3
-short_step = np.log(2) / 300
-long_step = 1000
+short_step = np.log(2) / 15
+long_step = 1
 # use long step when short step exceeds long step
 s_mid = min(long_step / (1 - np.exp(-short_step)), s_max)
+print(f"s_mid={s_mid}")
 # Adaptive step size
 s_state_small = np.exp(np.arange(np.log(s_min), np.log(s_mid), short_step))
 s_state_large = np.arange(max(s_state_small) + long_step, s_max, long_step)
@@ -104,16 +105,29 @@ def next_difficulty(d, g):
     return mean_reversion(w[4], d - w[6] * (g - 3))
 
 
-# stability to index (logarithmic)
+# stability to index
 def s2i(s):
-    index = np.clip(
-        np.floor(
-            (np.log(s) - np.log(s_min)) / (np.log(s_max) - np.log(s_min)) * s_size
-        ).astype(int),
+    # Vectorized version for array input
+    result = np.zeros_like(s, dtype=int)
+    small_mask = s <= s_mid
+
+    # Handle small values (logarithmic scale)
+    result[small_mask] = np.clip(
+        np.floor((np.log(s[small_mask]) - np.log(s_min)) / short_step).astype(int),
         0,
-        s_size - 1,
+        len(s_state_small) - 1,
     )
-    return index
+
+    # Handle large values (linear scale)
+    result[~small_mask] = len(s_state_small) + np.clip(
+        np.floor((s[~small_mask] - s_state_small[-1] - long_step) / long_step).astype(
+            int
+        ),
+        0,
+        len(s_state_large) - 1,
+    )
+
+    return result
 
 
 # difficulty to index
