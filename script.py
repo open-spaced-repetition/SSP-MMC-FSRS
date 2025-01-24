@@ -4,12 +4,13 @@ import matplotlib.pyplot as plt
 
 plt.style.use("ggplot")
 
-again_cost = 25
-hard_cost = 14
-good_cost = 10
-easy_cost = 6
-first_rating_prob = np.array([0.15, 0.2, 0.6, 0.05])
-review_rating_prob = np.array([0.3, 0.6, 0.1])
+review_costs = np.array([23.0, 11.68, 7.33, 5.6])
+first_rating_prob = np.array([0.24, 0.094, 0.495, 0.171])
+review_rating_prob = np.array([0.224, 0.631, 0.145])
+first_rating_offsets = np.array([-0.72, -0.15, -0.01, 0.0])
+first_session_lens = np.array([2.02, 1.28, 0.81, 0.0])
+forget_rating_offset = -0.28
+forget_session_len = 1.05
 
 s_min = 0.1
 s_max = 365 * 3
@@ -55,23 +56,25 @@ cost_matrix[:, -1] = 0
 action_matrix = np.zeros((d_size, s_size))
 
 w = [
-    0.5701,
-    1.4436,
-    4.1386,
-    10.9355,
-    5.1443,
-    1.2006,
-    0.8627,
-    0.0362,
-    1.629,
-    0.1342,
-    1.0166,
-    2.1174,
-    0.0839,
-    0.3204,
-    1.4676,
-    0.219,
-    2.8237,
+    0.40255,
+    1.18385,
+    3.173,
+    15.69105,
+    7.1949,
+    0.5345,
+    1.4604,
+    0.0046,
+    1.54575,
+    0.1192,
+    1.01925,
+    1.9395,
+    0.11,
+    0.29605,
+    2.2698,
+    0.2315,
+    2.9898,
+    0.51655,
+    0.6621,
 ]
 
 
@@ -88,21 +91,53 @@ def stability_after_success(s, d, r, g):
 
 
 def stability_after_failure(s, d, r):
-    return np.minimum(
-        w[11]
-        * np.power(d, -w[12])
-        * (np.power(s + 1, w[13]) - 1)
-        * np.exp((1 - r) * w[14]),
-        s,
+    return np.maximum(
+        s_min,
+        np.minimum(
+            w[11]
+            * np.power(d, -w[12])
+            * (np.power(s + 1, w[13]) - 1)
+            * np.exp((1 - r) * w[14]),
+            s / np.exp(w[17] * w[18]),
+        ),
     )
+
+
+def stability_short_term(s):
+    return s * np.exp(w[17] * (forget_rating_offset + forget_session_len * w[18]))
+
+
+def init_s(rating):
+    return np.choose(
+        rating - 1,
+        np.array(w[0:4])
+        * np.exp(w[17] * (first_rating_offsets + first_session_lens * w[18])),
+    )
+
+
+def init_d(rating):
+    return w[4] - np.exp(w[5] * (rating - 1)) + 1
+
+
+def init_d_with_short_term(rating):
+    rating_offset = np.choose(rating - 1, first_rating_offsets)
+    new_d = init_d(rating) - w[6] * rating_offset
+    return np.clip(new_d, 1, 10)
+
+
+def linear_damping(delta_d, old_d):
+    return delta_d * (10 - old_d) / 9
+
+
+def next_d(d, g):
+    delta_d = -w[6] * (g - 3)
+    new_d = d + linear_damping(delta_d, d)
+    new_d = mean_reversion(init_d(4), new_d)
+    return new_d
 
 
 def mean_reversion(init, current):
     return (w[7] * init + (1 - w[7]) * current).clip(1, 10)
-
-
-def next_difficulty(d, g):
-    return mean_reversion(w[4], d - w[6] * (g - 3))
 
 
 # stability to indexes
@@ -169,36 +204,36 @@ r_state_mesh = power_forgetting_curve(ivl_mesh, s_state_mesh)
 retention_matrix = np.zeros_like(cost_matrix)
 
 while i < n_iter and cost_diff > 1e-4 * s_size * d_size:
-    next_stability_after_again = stability_after_failure(
-        s_state_mesh, d_state_mesh, r_state_mesh
+    next_stability_after_again = stability_short_term(
+        stability_after_failure(s_state_mesh, d_state_mesh, r_state_mesh)
     )
-    next_difficulty_after_again = next_difficulty(d_state_mesh, 1)
+    next_difficulty_after_again = next_d(d_state_mesh, 1)
     next_cost_after_again = (
-        i2c(next_stability_after_again, next_difficulty_after_again) + again_cost
+        i2c(next_stability_after_again, next_difficulty_after_again) + review_costs[0]
     )
 
     next_stability_after_hard = stability_after_success(
         s_state_mesh, d_state_mesh, r_state_mesh, 2
     )
-    next_difficulty_after_hard = next_difficulty(d_state_mesh, 2)
+    next_difficulty_after_hard = next_d(d_state_mesh, 2)
     next_cost_after_hard = (
-        i2c(next_stability_after_hard, next_difficulty_after_hard) + hard_cost
+        i2c(next_stability_after_hard, next_difficulty_after_hard) + review_costs[1]
     )
 
     next_stability_after_good = stability_after_success(
         s_state_mesh, d_state_mesh, r_state_mesh, 3
     )
-    next_difficulty_after_good = next_difficulty(d_state_mesh, 3)
+    next_difficulty_after_good = next_d(d_state_mesh, 3)
     next_cost_after_good = (
-        i2c(next_stability_after_good, next_difficulty_after_good) + good_cost
+        i2c(next_stability_after_good, next_difficulty_after_good) + review_costs[2]
     )
 
     next_stability_after_easy = stability_after_success(
         s_state_mesh, d_state_mesh, r_state_mesh, 4
     )
-    next_difficulty_after_easy = next_difficulty(d_state_mesh, 4)
+    next_difficulty_after_easy = next_d(d_state_mesh, 4)
     next_cost_after_easy = (
-        i2c(next_stability_after_easy, next_difficulty_after_easy) + easy_cost
+        i2c(next_stability_after_easy, next_difficulty_after_easy) + review_costs[3]
     )
 
     expected_cost = (
@@ -226,9 +261,9 @@ while i < n_iter and cost_diff > 1e-4 * s_size * d_size:
 
 end = time.time()
 print(f"Time: {end - start:.2f}s")
-init_stability = np.array(w[0:4])
-init_difficulty = np.array([w[4] - (3 - g) * w[5] for g in range(1, 5)])
-init_cost = cost_matrix[d2i(init_difficulty), s2i(init_stability)]
+init_stabilities = init_s(np.arange(1, 5))
+init_difficulties = init_d_with_short_term(np.arange(1, 5))
+init_cost = cost_matrix[d2i(init_difficulties), s2i(init_stabilities)]
 avg_cost = init_cost @ first_rating_prob
 print(f"Average cost: {avg_cost:.2f}")
 avg_retention = retention_matrix.mean()
@@ -273,8 +308,8 @@ def optimal_policy_for_rating_sequence(rating_sequence: list[int]):
     for i, rating in enumerate(rating_sequence):
         g_list.append(rating)
         if i == 0:
-            d_index, s_index = d2i(init_difficulty[rating - 1]), s2i(
-                init_stability[rating - 1]
+            d_index, s_index = d2i(init_difficulties[rating - 1]), s2i(
+                init_stabilities[rating - 1]
             )
             cur_s = s_state[s_index]
             cur_d = d_state[d_index]
@@ -284,7 +319,7 @@ def optimal_policy_for_rating_sequence(rating_sequence: list[int]):
             r_list.append(optimal_r)
             ivl_list.append(next_interval(cur_s, optimal_r))
             cur_s = stability_after_success(cur_s, cur_d, optimal_r, rating)
-            cur_d = next_difficulty(cur_d, rating)
+            cur_d = next_d(cur_d, rating)
             d_index, s_index = d2i(cur_d), s2i(cur_s)
 
         if cur_s > s_max:
@@ -343,33 +378,34 @@ for r in r_range:
         next_stability_after_again = stability_after_failure(
             s_state_mesh, d_state_mesh, r_state_mesh
         )
-        next_difficulty_after_again = next_difficulty(d_state_mesh, 1)
+        next_difficulty_after_again = next_d(d_state_mesh, 1)
         next_cost_after_again = (
-            i2c(next_stability_after_again, next_difficulty_after_again) + again_cost
+            i2c(next_stability_after_again, next_difficulty_after_again)
+            + review_costs[0]
         )
 
         next_stability_after_hard = stability_after_success(
             s_state_mesh, d_state_mesh, r_state_mesh, 2
         )
-        next_difficulty_after_hard = next_difficulty(d_state_mesh, 2)
+        next_difficulty_after_hard = next_d(d_state_mesh, 2)
         next_cost_after_hard = (
-            i2c(next_stability_after_hard, next_difficulty_after_hard) + hard_cost
+            i2c(next_stability_after_hard, next_difficulty_after_hard) + review_costs[1]
         )
 
         next_stability_after_good = stability_after_success(
             s_state_mesh, d_state_mesh, r_state_mesh, 3
         )
-        next_difficulty_after_good = next_difficulty(d_state_mesh, 3)
+        next_difficulty_after_good = next_d(d_state_mesh, 3)
         next_cost_after_good = (
-            i2c(next_stability_after_good, next_difficulty_after_good) + good_cost
+            i2c(next_stability_after_good, next_difficulty_after_good) + review_costs[2]
         )
 
         next_stability_after_easy = stability_after_success(
             s_state_mesh, d_state_mesh, r_state_mesh, 4
         )
-        next_difficulty_after_easy = next_difficulty(d_state_mesh, 4)
+        next_difficulty_after_easy = next_d(d_state_mesh, 4)
         next_cost_after_easy = (
-            i2c(next_stability_after_easy, next_difficulty_after_easy) + easy_cost
+            i2c(next_stability_after_easy, next_difficulty_after_easy) + review_costs[3]
         )
 
         expected_cost = (
@@ -388,9 +424,9 @@ for r in r_range:
         i += 1
     end = time.time()
     print(f"Time: {end - start:.2f}s, Iterations: {i}")
-    init_stability = np.array(w[0:4])
-    init_difficulty = np.array([w[4] - (3 - g) * w[5] for g in range(1, 5)])
-    init_cost = cost_matrix[d2i(init_difficulty), s2i(init_stability)]
+    init_stabilities = init_s(np.arange(1, 5))
+    init_difficulties = init_d_with_short_term(np.arange(1, 5))
+    init_cost = cost_matrix[d2i(init_difficulties), s2i(init_stabilities)]
     avg_cost = init_cost @ first_rating_prob
     avg_retention = r_state_mesh.mean()
     print(f"Desired Retention: {r * 100:.2f}%")
