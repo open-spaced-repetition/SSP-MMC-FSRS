@@ -375,8 +375,8 @@ for r in r_range:
     cost_diff = 10000
     n_iter = 1000
     while i < n_iter and cost_diff > 1e-4 * s_size * d_size:
-        next_stability_after_again = stability_after_failure(
-            s_state_mesh, d_state_mesh, r_state_mesh
+        next_stability_after_again = stability_short_term(
+            stability_after_failure(s_state_mesh, d_state_mesh, r_state_mesh)
         )
         next_difficulty_after_again = next_d(d_state_mesh, 1)
         next_cost_after_again = (
