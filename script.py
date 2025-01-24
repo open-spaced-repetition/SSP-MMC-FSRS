@@ -150,7 +150,7 @@ def i2c(s, d):
 
 
 i = 0
-diff = 1000
+cost_diff = 1000
 n_iter = 10000
 
 start = time.time()
@@ -166,8 +166,9 @@ s_state_mesh, d_state_mesh, r_state_mesh = np.meshgrid(s_state, d_state, r_state
 
 ivl_mesh = next_interval(s_state_mesh, r_state_mesh)
 r_state_mesh = power_forgetting_curve(ivl_mesh, s_state_mesh)
+retention_matrix = np.zeros_like(cost_matrix)
 
-while i < n_iter and diff > 1e-4 * s_size * d_size:
+while i < n_iter and cost_diff > 1e-4 * s_size * d_size:
     next_stability_after_again = stability_after_failure(
         s_state_mesh, d_state_mesh, r_state_mesh
     )
@@ -211,12 +212,15 @@ while i < n_iter and diff > 1e-4 * s_size * d_size:
     )
     # update cost matrix
     optimal_cost = np.minimum(cost_matrix, expected_cost.min(axis=2))
-    retention_matrix = r_state[np.argmin(expected_cost, axis=2)]
-    diff = cost_matrix.sum() - optimal_cost.sum()
+    cost_diff = np.sum(cost_matrix - optimal_cost)
     cost_matrix = optimal_cost
+
+    last_retention_matrix = retention_matrix
+    retention_matrix = r_state[np.argmin(expected_cost, axis=2)]
+    r_diff = np.abs(retention_matrix - last_retention_matrix).sum()
     if i % 10 == 0:
         print(
-            f"iteration {i:>5}, diff {diff:.2f}, elapsed time {time.time() - start:.1f}s"
+            f"iteration {i:>5}, cost diff {cost_diff:.2f}, retention diff {r_diff:.2f}, elapsed time {time.time() - start:.1f}s"
         )
     i += 1
 
@@ -239,6 +243,7 @@ ax.set_ylabel("Difficulty")
 ax.set_zlabel("Cost")
 ax.set_title(f"Avg Init Cost: {avg_cost:.2f}")
 ax.set_box_aspect(None, zoom=0.8)
+
 ax = fig.add_subplot(132, projection="3d")
 ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, retention_matrix, cmap="viridis")
 ax.set_xlabel("Stability")
@@ -246,6 +251,7 @@ ax.set_ylabel("Difficulty")
 ax.set_zlabel("Retention")
 ax.set_title(f"Avg Retention: {avg_retention:.2f}")
 ax.set_box_aspect(None, zoom=0.8)
+
 ax = fig.add_subplot(133, projection="3d")
 interval_matrix = next_interval(s_state_mesh_2d, retention_matrix)
 ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, interval_matrix, cmap="viridis")
@@ -254,6 +260,7 @@ ax.set_ylabel("Difficulty")
 ax.set_zlabel("Interval")
 ax.set_title("Interval")
 ax.set_box_aspect(None, zoom=0.8)
+
 plt.tight_layout()
 plt.savefig("./plot/SSP-MMC.png")
 
@@ -330,9 +337,9 @@ for r in r_range:
     r_state_mesh = power_forgetting_curve(ivl_mesh, s_state_mesh)
 
     i = 0
-    diff = 10000
+    cost_diff = 10000
     n_iter = 1000
-    while i < n_iter and diff > 1e-4 * s_size * d_size:
+    while i < n_iter and cost_diff > 1e-4 * s_size * d_size:
         next_stability_after_again = stability_after_failure(
             s_state_mesh, d_state_mesh, r_state_mesh
         )
@@ -376,7 +383,7 @@ for r in r_range:
         )
         # update cost matrix
         optimal_cost = np.minimum(cost_matrix, expected_cost)
-        diff = cost_matrix.sum() - optimal_cost.sum()
+        cost_diff = cost_matrix.sum() - optimal_cost.sum()
         cost_matrix = optimal_cost
         i += 1
     end = time.time()
