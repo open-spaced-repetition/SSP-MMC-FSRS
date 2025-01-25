@@ -15,7 +15,7 @@ When a fixed value of desired retention is used, the intervals correspond to the
 
 Deck size = 10,000 cards. New cards per day = 10, max. reviews per day = 9999.
 
-The best result is highlited in **bold**. 
+The best result is highlighted in **bold**. 
 
 ### Duration of the simulation = 365 days
 
