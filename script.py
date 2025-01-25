@@ -553,5 +553,5 @@ print(
 print("| --- | --- | --- | --- | --- |")
 for title, review_cnt_per_day, cost_per_day, memorized_cnt_at_end in simulation_table:
     print(
-        f"| {title} | {review_cnt_per_day:.2f} | {cost_per_day:.2f} | {memorized_cnt_at_end:.2f} | {memorized_cnt_at_end / cost_per_day:.2f} |"
+        f"| {title} | {review_cnt_per_day:.1f} | {cost_per_day:.1f} | {memorized_cnt_at_end:.0f} | {memorized_cnt_at_end / cost_per_day:.0f} |"
     )
