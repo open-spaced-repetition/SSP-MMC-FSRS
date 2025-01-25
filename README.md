@@ -35,14 +35,14 @@ Deck size = 10,000 cards. The best result is highlited in **bold**.
 
 | Schedulling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute |
 | --- | --- | --- | --- | --- |
-| SSP-MMC | 39.0 | 10.1 | 9831 | **976** |
+| SSP-MMC | 39.0 | **10.1** | 9831 | **976** |
 | DR=0.70 | **31.3** | 12.0 | 8748 | 731 |
 | DR=0.73 | 32.6 | 11.6 | 8963 | 770 |
 | DR=0.76 | 34.0 | 11.2 | 9198 | 818 |
 | DR=0.79 | 35.9 | 11.0 | 9383 | 855 |
 | DR=0.82 | 39.0 | 10.9 | 9558 | 874 |
 | DR=0.85 | 42.5 | 10.9 | 9693 | 892 |
-| DR=0.88 | 47.2 | **10.8** | 9806 | 905 |
+| DR=0.88 | 47.2 | 10.8 | 9806 | 905 |
 | DR=0.91 | 55.3 | 11.3 | 9893 | 876 |
 | DR=0.94 | 69.3 | 12.4 | 9955 | 802 |
 | DR=0.97 | 115.4 | 18.0 | **9989** | 556 |
