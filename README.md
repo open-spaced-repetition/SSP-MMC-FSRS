@@ -7,23 +7,44 @@ SSP-MMC-FSRS is an extended verson of [SSP-MMC](https://github.com/maimemo/SSP-M
 
 ## Results
 
-- Scheduling Policy: how the intervals are calculated. When SSP-MMC is used, intervals are chosen in a way that minimizes the "cost" (in minutes of studying). When a fixed value of desired retention is used, intervals correspond to the desired probability of recall.
-- Average number of reviews per day: the average number of simulated reviews of flashcards per one day of the simulated review history. Lower is better.
+- Scheduling Policy: how the intervals are calculated. When SSP-MMC is used, the intervals are chosen so that the "cost" (in minutes of studying) is minimized. 
+When a fixed value of desired retention is used, the intervals correspond to the desired probability of recall.
 - Average number of minutes per day: same as above, but minutes of studying are used instead. Lower is better.
-- Total knowledge at the end: the sum of probabilities of recall of all reviewed cards by the end of the simulation. Higher is better.
+- Total knowledge at the end: the sum of probabilities of recall of all reviewed cards by the end of the simulation. It cannot be greater than the deck size. Higher is better.
 - Knowledge per minute: a measure of learning efficiency. Higher is better.
 
-The duration of the simulation is 3650 days (10 years). SSP-MMC performs better as the number of days increases.
-Scheduling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute
+Deck size = 10,000 cards.
+
+### Duration of the simulation = 365 days
+
+| Schedulling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute |
 | --- | --- | --- | --- | --- |
-| SSP-MMC | 41.4 | 11.4 | 9819 | 860 |
-| DR=0.70 | 31.0 | 12.5 | 8706 | 696 |
-| DR=0.73 | 32.7 | 12.4 | 8928 | 721 |
-| DR=0.76 | 34.4 | 12.0 | 9103 | 755 |
-| DR=0.79 | 36.8 | 12.0 | 9344 | 781 |
-| DR=0.82 | 39.5 | 11.8 | 9522 | 808 |
-| DR=0.85 | 43.6 | 11.9 | 9668 | 814 |
-| DR=0.88 | 48.0 | 11.8 | 9788 | 830 |
-| DR=0.91 | 57.1 | 12.4 | 9879 | 795 |
-| DR=0.94 | 73.1 | 14.0 | 9941 | 711 |
-| DR=0.97 | 115.8 | 19.0 | 9980 | 525 |
+| SSP-MMC | 173.4 | 43.2 | 9473 | 219 |
+| DR=0.70 | 111.6 | 42.7 | 8493 | 199 |
+| DR=0.73 | 119.2 | 42.6 | 8734 | 205 |
+| DR=0.76 | 125.8 | 41.7 | 8850 | 212 |
+| DR=0.79 | 132.9 | 40.8 | 8968 | 220 |
+| DR=0.82 | 147.1 | 41.3 | 9217 | 223 |
+| DR=0.85 | 164.2 | 42.4 | 9289 | 219 |
+| DR=0.88 | 188.9 | 44.1 | 9440 | 214 |
+| DR=0.91 | 229.5 | 48.0 | 9588 | 200 |
+| DR=0.94 | 300.7 | 55.4 | 9702 | 175 |
+| DR=0.97 | 523.6 | 83.8 | 9854 | 118 |
+
+### Duration of the simulation = 3650 days
+
+| Schedulling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute |
+| --- | --- | --- | --- | --- |
+| SSP-MMC | 39.0 | 10.1 | 9831 | 976 |
+| DR=0.70 | 31.3 | 12.0 | 8748 | 731 |
+| DR=0.73 | 32.6 | 11.6 | 8963 | 770 |
+| DR=0.76 | 34.0 | 11.2 | 9198 | 818 |
+| DR=0.79 | 35.9 | 11.0 | 9383 | 855 |
+| DR=0.82 | 39.0 | 10.9 | 9558 | 874 |
+| DR=0.85 | 42.5 | 10.9 | 9693 | 892 |
+| DR=0.88 | 47.2 | 10.8 | 9806 | 905 |
+| DR=0.91 | 55.3 | 11.3 | 9893 | 876 |
+| DR=0.94 | 69.3 | 12.4 | 9955 | 802 |
+| DR=0.97 | 115.4 | 18.0 | 9989 | 556 |
+
+SSP-MMC performs better over longer periods of time.
