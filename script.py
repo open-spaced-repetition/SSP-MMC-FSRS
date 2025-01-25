@@ -1,16 +1,29 @@
 import time
 import numpy as np
 import matplotlib.pyplot as plt
+from simulator import (
+    DEFAULT_REVIEW_COSTS,
+    DEFAULT_FIRST_RATING_PROB,
+    DEFAULT_REVIEW_RATING_PROB,
+    DEFAULT_FIRST_RATING_OFFSETS,
+    DEFAULT_FIRST_SESSION_LENS,
+    DEFAULT_FORGET_RATING_OFFSET,
+    DEFAULT_FORGET_SESSION_LEN,
+    power_forgetting_curve,
+    next_interval,
+    simulate,
+)
 
 plt.style.use("ggplot")
 
-review_costs = np.array([23.0, 11.68, 7.33, 5.6])
-first_rating_prob = np.array([0.24, 0.094, 0.495, 0.171])
-review_rating_prob = np.array([0.224, 0.631, 0.145])
-first_rating_offsets = np.array([-0.72, -0.15, -0.01, 0.0])
-first_session_lens = np.array([2.02, 1.28, 0.81, 0.0])
-forget_rating_offset = -0.28
-forget_session_len = 1.05
+review_costs = DEFAULT_REVIEW_COSTS
+first_rating_prob = DEFAULT_FIRST_RATING_PROB
+review_rating_prob = DEFAULT_REVIEW_RATING_PROB
+first_rating_offsets = DEFAULT_FIRST_RATING_OFFSETS
+first_session_lens = DEFAULT_FIRST_SESSION_LENS
+forget_rating_offset = DEFAULT_FORGET_RATING_OFFSET
+forget_session_len = DEFAULT_FORGET_SESSION_LEN
+loss_aversion = 2.5
 
 s_min = 0.1
 s_max = 365 * 3
@@ -36,19 +49,6 @@ r_min = 0.70
 r_max = 0.97
 r_eps = 0.01
 r_size = np.ceil((r_max - r_min) / r_eps + 1).astype(int)
-
-DECAY = -0.5
-FACTOR = 0.9 ** (1.0 / DECAY) - 1.0
-
-
-def power_forgetting_curve(t, s):
-    return (1 + FACTOR * t / s) ** DECAY
-
-
-def next_interval(s, r):
-    ivl = s / FACTOR * (r ** (1.0 / DECAY) - 1.0)
-    return np.maximum(1, np.floor(ivl))
-
 
 cost_matrix = np.zeros((d_size, s_size))
 cost_matrix.fill(1e8)
@@ -133,11 +133,11 @@ def next_d(d, g):
     delta_d = -w[6] * (g - 3)
     new_d = d + linear_damping(delta_d, d)
     new_d = mean_reversion(init_d(4), new_d)
-    return new_d
+    return new_d.clip(1, 10)
 
 
 def mean_reversion(init, current):
-    return (w[7] * init + (1 - w[7]) * current).clip(1, 10)
+    return w[7] * init + (1 - w[7]) * current
 
 
 # stability to indexes
@@ -209,7 +209,8 @@ while i < n_iter and cost_diff > 1e-4 * s_size * d_size:
     )
     next_difficulty_after_again = next_d(d_state_mesh, 1)
     next_cost_after_again = (
-        i2c(next_stability_after_again, next_difficulty_after_again) + review_costs[0]
+        i2c(next_stability_after_again, next_difficulty_after_again)
+        + review_costs[0] * loss_aversion
     )
 
     next_stability_after_hard = stability_after_success(
@@ -298,6 +299,72 @@ ax.set_box_aspect(None, zoom=0.8)
 
 plt.tight_layout()
 plt.savefig("./plot/SSP-MMC.png")
+plt.close()
+
+
+def ssp_mmc_policy(s, d):
+    d_index = d2i(d)
+    s_index = s2i(s)
+    # Handle array inputs by checking each element
+    mask = (d_index >= d_size) | (s_index >= s_size - 1)
+    optimal_interval = np.zeros_like(s)
+    optimal_interval[~mask] = next_interval(
+        s[~mask], retention_matrix[d_index[~mask], s_index[~mask]]
+    )
+    optimal_interval[mask] = np.inf
+    return optimal_interval
+
+
+def simulate_policy(policy):
+    (
+        _,
+        review_cnt_per_day,
+        _,
+        memorized_cnt_per_day,
+        cost_per_day,
+        _,
+    ) = simulate(
+        w=w,
+        policy=policy,
+        deck_size=10000,
+        learn_span=365 * 10,
+        loss_aversion=loss_aversion,
+        s_max=s_max,
+    )
+
+    def moving_average(data, window_size=365 // 20):
+        weights = np.ones(window_size) / window_size
+        return np.convolve(data, weights, mode="valid")
+
+    return (
+        moving_average(review_cnt_per_day),
+        moving_average(cost_per_day),
+        moving_average(memorized_cnt_per_day),
+    )
+
+
+def plot_simulation(policy, title):
+    review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(policy)
+    fig = plt.figure(figsize=(16, 8.5))
+    ax = fig.add_subplot(131)
+    ax.plot(review_cnt_per_day)
+    ax.set_title("Review Count")
+    ax = fig.add_subplot(132)
+    ax.plot(cost_per_day, label=f"Total Cost: {cost_per_day.sum():.2f}")
+    ax.set_title("Cost")
+    ax.legend()
+    ax = fig.add_subplot(133)
+    ax.plot(
+        memorized_cnt_per_day, label=f"Total Memorized: {memorized_cnt_per_day[-1]:.2f}"
+    )
+    ax.set_title("Memorized Count")
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(f"./simulation/{title}.png")
+    plt.close()
+
+
+plot_simulation(ssp_mmc_policy, "SSP-MMC")
 
 
 def optimal_policy_for_rating_sequence(rating_sequence: list[int]):
@@ -350,6 +417,7 @@ def plot_optimal_policy_vs_stability(rating_sequence: list[int]):
     fig.suptitle(f"Rating Sequence: {','.join(map(str, g_list))}")
     plt.tight_layout()
     plt.savefig(f"./plot/OR-OI-{','.join(map(str, g_list))}.png")
+    plt.close()
 
 
 for rating in range(1, 5):
@@ -381,7 +449,7 @@ for r in r_range:
         next_difficulty_after_again = next_d(d_state_mesh, 1)
         next_cost_after_again = (
             i2c(next_stability_after_again, next_difficulty_after_again)
-            + review_costs[0]
+            + review_costs[0] * loss_aversion
         )
 
         next_stability_after_hard = stability_after_success(
@@ -449,6 +517,8 @@ for r in r_range:
     ax.set_box_aspect(None, zoom=0.8)
     plt.tight_layout()
     plt.savefig(f"./plot/DR={r:.2f}.png")
+    plt.close()
+    plot_simulation(lambda s, d: next_interval(s, r), f"DR={r:.2f}")
 
 fig = plt.figure(figsize=(8, 8))
 ax = fig.add_subplot(111)
@@ -461,3 +531,4 @@ ax.set_title(
     f"Optimal Retention: {optimal_retention * 100:.2f}%, Min Cost: {min_cost:.2f}"
 )
 plt.savefig("./plot/cost_vs_retention.png")
+plt.close()
