@@ -46,7 +46,7 @@ def simulate(
     w,
     policy,
     deck_size=10000,
-    learn_span=365,
+    learn_span=10*365,
     max_cost_perday=1800,
     learn_limit_perday=math.inf,
     review_limit_perday=math.inf,
