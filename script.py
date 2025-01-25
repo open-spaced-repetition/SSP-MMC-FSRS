@@ -343,8 +343,22 @@ def simulate_policy(policy):
     )
 
 
+simulation_table = []
+
+
 def plot_simulation(policy, title):
     review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(policy)
+    simulation_table.append(
+        (
+            title,
+            review_cnt_per_day.mean(),
+            cost_per_day.mean() / 60,
+            memorized_cnt_per_day[-1],
+        )
+    )
+    print(
+        f"Schedulling Policy: {title}\tAverage Review Per Day: {review_cnt_per_day.mean():.2f}\tAverage Minutes Per Review: {cost_per_day.mean() / 60:.2f}\tTotal knowledge at the end: {memorized_cnt_per_day[-1]:.2f}"
+    )
     fig = plt.figure(figsize=(16, 8.5))
     ax = fig.add_subplot(131)
     ax.plot(review_cnt_per_day)
@@ -532,3 +546,15 @@ ax.set_title(
 )
 plt.savefig("./plot/cost_vs_retention.png")
 plt.close()
+
+
+print("--------------------------------")
+
+print(
+    "| Schedulling Policy | Average Review Per Day | Average Minutes Per Review | Total knowledge at the end |"
+)
+print("| --- | --- | --- | --- |")
+for title, review_cnt_per_day, cost_per_day, memorized_cnt_per_day in simulation_table:
+    print(
+        f"| {title} | {review_cnt_per_day:.2f} | {cost_per_day:.2f} | {memorized_cnt_per_day:.2f} |"
+    )
