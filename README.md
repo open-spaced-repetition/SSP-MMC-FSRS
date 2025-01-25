@@ -7,17 +7,23 @@ SSP-MMC-FSRS is an extended verson of [SSP-MMC](https://github.com/maimemo/SSP-M
 
 ## Results
 
+- Scheduling Policy: how the intervals are calculated. When SSP-MMC is used, intervals are chosen in a way that minimizes the "cost" (in minutes of studying). When a fixed value of desired retention is used, intervals correspond to the desired probability of recall.
+- Average number of reviews per day: the average number of simulated reviews of flashcards per one day of the simulated review history. Lower is better.
+- Average number of minutes per day: same as above, but minutes of studying are used instead. Lower is better.
+- Total knowledge at the end: the sum of probabilities of recall of all reviewed cards by the end of the simulation. Higher is better.
+- Knowledge per minute: a measure of learning efficiency. Higher is better.
 
-| Schedulling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute
+
+Scheduling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute
 | --- | --- | --- | --- | --- |
-| SSP-MMC | 41.42 | 11.42 | 9818.93 | 859.79 |
-| DR=0.70 | 30.96 | 12.51 | 8705.75 | 695.77 |
-| DR=0.73 | 32.70 | 12.39 | 8928.16 | 720.68 |
-| DR=0.76 | 34.39 | 12.05 | 9102.92 | 755.21 |
-| DR=0.79 | 36.83 | 11.96 | 9343.61 | 781.14 |
-| DR=0.82 | 39.54 | 11.79 | 9522.07 | 807.77 |
-| DR=0.85 | 43.57 | 11.88 | 9668.09 | 814.10 |
-| DR=0.88 | 48.04 | 11.79 | 9787.57 | 829.99 |
-| DR=0.91 | 57.05 | 12.43 | 9878.64 | 794.77 |
-| DR=0.94 | 73.07 | 13.99 | 9941.42 | 710.72 |
-| DR=0.97 | 115.79 | 19.01 | 9979.66 | 525.09 |
+| SSP-MMC | 41.4 | 11.4 | 9819 | 860 |
+| DR=0.70 | 31.0 | 12.5 | 8706 | 696 |
+| DR=0.73 | 32.7 | 12.4 | 8928 | 721 |
+| DR=0.76 | 34.4 | 12.0 | 9103 | 755 |
+| DR=0.79 | 36.8 | 12.0 | 9344 | 781 |
+| DR=0.82 | 39.5 | 11.8 | 9522 | 808 |
+| DR=0.85 | 43.6 | 11.9 | 9668 | 814 |
+| DR=0.88 | 48.0 | 11.8 | 9788 | 830 |
+| DR=0.91 | 57.1 | 12.4 | 9879 | 795 |
+| DR=0.94 | 73.1 | 14.0 | 9941 | 711 |
+| DR=0.97 | 115.8 | 19.0 | 9980 | 525 |
