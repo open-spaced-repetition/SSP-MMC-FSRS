@@ -13,7 +13,7 @@ When a fixed value of desired retention is used, the intervals correspond to the
 - Total knowledge at the end: the sum of probabilities of recall of all reviewed cards by the end of the simulation. It cannot be greater than the deck size. Higher is better.
 - Knowledge per minute: a measure of learning efficiency. Higher is better.
 
-Deck size = 10,000 cards. New cards per day = 10, max. reviews per day = 9999.
+Deck size = 10,000 cards. New cards per day = 10, max. reviews per day = 9,999.
 
 The best result is highlighted in **bold**. 
 
