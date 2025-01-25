@@ -13,7 +13,7 @@ SSP-MMC-FSRS is an extended verson of [SSP-MMC](https://github.com/maimemo/SSP-M
 - Total knowledge at the end: the sum of probabilities of recall of all reviewed cards by the end of the simulation. Higher is better.
 - Knowledge per minute: a measure of learning efficiency. Higher is better.
 
-
+The duration of the simulation is 3650 days (10 years). SSP-MMC performs better as the number of days increases.
 Scheduling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute
 | --- | --- | --- | --- | --- |
 | SSP-MMC | 41.4 | 11.4 | 9819 | 860 |
