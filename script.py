@@ -551,7 +551,7 @@ plt.close()
 print("--------------------------------")
 
 print(
-    "| Schedulling Policy | Average Review Per Day | Average Minutes Per Review | Total knowledge at the end |"
+    "| Schedulling Policy | Average Review Per Day | Average Minutes Per Day | Total knowledge at the end |"
 )
 print("| --- | --- | --- | --- |")
 for title, review_cnt_per_day, cost_per_day, memorized_cnt_per_day in simulation_table:
