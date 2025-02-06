@@ -72,10 +72,8 @@ if __name__ == "__main__":
                 f"{converged_count/tested_count:.2%} converged ({converged_count}/{tested_count})"
             )
 
-    # Get converged users
-    converged_users = [user_id for user_id, result in results if result]
+    # Get unconverged users
+    unconverged_users = [user_id for user_id, result in results if not result]
 
-    print(f"Total users: {len(parameters)}")
-    print(f"Converged users: {converged_count}")
-    print("Converged user IDs:")
-    print("\n".join(converged_users))
+    print("Unconverged user IDs:")
+    print("\n".join(str(user_id) for user_id in unconverged_users))
