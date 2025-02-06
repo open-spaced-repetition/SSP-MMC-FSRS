@@ -14,7 +14,7 @@ When a fixed value of desired retention (DR) is used, the intervals correspond t
 - Total knowledge at the end: the sum of probabilities of recall of all reviewed cards by the end of the simulation. It cannot be greater than the deck size. Higher is better.
 - Knowledge per minute: a measure of learning efficiency. Higher is better.
 
-Deck size = 10,000 cards. New cards per day = 10, max. reviews per day = 9,999.
+Deck size = 10,000 cards, new cards per day = 10, max. reviews per day = 9,999, max. studying time per day = 360 minutes.
 
 The best result is highlighted in **bold**. The worst result is highlighted in $${\color{red}red}$$.
 
@@ -35,7 +35,7 @@ The best result is highlighted in **bold**. The worst result is highlighted in $
 | DR=0.97 | 159.2 | 28.4 | 3501 | 123 |
 | IVL=3 | $${\color{red}603.3}$$ | $${\color{red}89.2}$$ | **3539** | $${\color{red}40}$$ |
 | IVL=7 | 255.7 | 44.9 | 3504 | 78 |
-| IVL=30 | 55.8 | 21.7 | 3100 | 143 |
+| IVL=30 | 55.8 | 21.7 | $${\color{red}3100}$$ | 143 |
 
 
 
@@ -54,7 +54,7 @@ The best result is highlighted in **bold**. The worst result is highlighted in $
 | DR=0.91 | 55.8 | 12.2 | 9870 | 809 |
 | DR=0.94 | 71.8 | 13.8 | 9938 | 722 |
 | DR=0.97 | 118.5 | 19.3 | 9983 | 516 |
-| IVL=3 | $${\color{red}2383.5}$$ | $${\color{red}322.8}$$ | 8089 | $${\color{red}25}$$ |
+| IVL=3 | $${\color{red}2383.5}$$ | $${\color{red}322.8}$$ | $${\color{red}8089}$$ | $${\color{red}25}$$ |
 | IVL=7 | 1233.9 | 170.3 | **9999** | 59 |
 | IVL=30 | 286.9 | 48.3 | 9966 | 206 |
 
