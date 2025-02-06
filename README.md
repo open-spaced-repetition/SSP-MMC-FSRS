@@ -58,3 +58,7 @@ The best result is highlighted in **bold**. The worst result is highlighted in $
 | IVL=30 | 286.9 | 48.3 | 9966 | 206 |
 
 SSP-MMC performs better over longer periods of time.
+
+## Warning
+
+Currently, the SSP-MMC matrix cannot be constructed for 7544 out of 9999 users (75.4%) due to convergence failure. This indicates that the current implementation is not suitable for practical use and that further research is necessary.
