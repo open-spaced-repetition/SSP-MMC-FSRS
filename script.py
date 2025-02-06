@@ -377,254 +377,256 @@ class SSPMMCSolver:
         return self.cost_matrix[self.d2i(d), self.s2i(s)]
 
 
-# 使用示例:
-solver = SSPMMCSolver(
-    review_costs=DEFAULT_REVIEW_COSTS,
-    first_rating_prob=DEFAULT_FIRST_RATING_PROB,
-    review_rating_prob=DEFAULT_REVIEW_RATING_PROB,
-    first_rating_offsets=DEFAULT_FIRST_RATING_OFFSETS,
-    first_session_lens=DEFAULT_FIRST_SESSION_LENS,
-    forget_rating_offset=DEFAULT_FORGET_RATING_OFFSET,
-    forget_session_len=DEFAULT_FORGET_SESSION_LEN,
-    loss_aversion=2.5,
-    w=w,
-)
-
-cost_matrix, retention_matrix = solver.solve()
-init_stabilities = solver.init_s(np.arange(1, 5))
-init_difficulties = solver.init_d_with_short_term(np.arange(1, 5))
-init_cost = cost_matrix[solver.d2i(init_difficulties), solver.s2i(init_stabilities)]
-avg_cost = init_cost @ first_rating_prob
-print(f"Average cost: {avg_cost:.2f}")
-avg_retention = retention_matrix.mean()
-print(f"Average retention: {avg_retention:.2f}")
-
-s_state_mesh_2d, d_state_mesh_2d = np.meshgrid(solver.s_state, solver.d_state)
-fig = plt.figure(figsize=(16, 8.5))
-ax = fig.add_subplot(131, projection="3d")
-ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, cost_matrix, cmap="viridis")
-ax.set_xlabel("Stability")
-ax.set_ylabel("Difficulty")
-ax.set_zlabel("Cost")
-ax.set_title(f"Avg Init Cost: {avg_cost:.2f}")
-ax.set_box_aspect(None, zoom=0.8)
-
-ax = fig.add_subplot(132, projection="3d")
-ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, retention_matrix, cmap="viridis")
-ax.set_xlabel("Stability")
-ax.set_ylabel("Difficulty")
-ax.set_zlabel("Retention")
-ax.set_title(f"Avg Retention: {avg_retention:.2f}")
-ax.set_box_aspect(None, zoom=0.8)
-
-ax = fig.add_subplot(133, projection="3d")
-interval_matrix = next_interval(s_state_mesh_2d, retention_matrix)
-ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, interval_matrix, cmap="viridis")
-ax.set_xlabel("Stability")
-ax.set_ylabel("Difficulty")
-ax.set_zlabel("Interval")
-ax.set_title("Interval")
-ax.set_box_aspect(None, zoom=0.8)
-
-plt.tight_layout()
-plt.savefig("./plot/SSP-MMC.png")
-plt.close()
-
-
-def ssp_mmc_policy(s, d):
-    d_index = solver.d2i(d)
-    s_index = solver.s2i(s)
-    # Handle array inputs by checking each element
-    mask = (d_index >= solver.d_size) | (s_index >= solver.s_size - 1)
-    optimal_interval = np.zeros_like(s)
-    optimal_interval[~mask] = next_interval(
-        s[~mask], retention_matrix[d_index[~mask], s_index[~mask]]
-    )
-    optimal_interval[mask] = np.inf
-    return optimal_interval
-
-
-def simulate_policy(policy):
-    (
-        _,
-        review_cnt_per_day,
-        _,
-        memorized_cnt_per_day,
-        cost_per_day,
-        _,
-    ) = simulate(
+if __name__ == "__main__":
+    solver = SSPMMCSolver(
+        review_costs=DEFAULT_REVIEW_COSTS,
+        first_rating_prob=DEFAULT_FIRST_RATING_PROB,
+        review_rating_prob=DEFAULT_REVIEW_RATING_PROB,
+        first_rating_offsets=DEFAULT_FIRST_RATING_OFFSETS,
+        first_session_lens=DEFAULT_FIRST_SESSION_LENS,
+        forget_rating_offset=DEFAULT_FORGET_RATING_OFFSET,
+        forget_session_len=DEFAULT_FORGET_SESSION_LEN,
+        loss_aversion=2.5,
         w=w,
-        policy=policy,
-        deck_size=10000,
-        learn_span=365 * 10,
-        loss_aversion=loss_aversion,
-        s_max=S_MAX,
     )
 
-    def moving_average(data, window_size=365 // 20):
-        weights = np.ones(window_size) / window_size
-        return np.convolve(data, weights, mode="valid")
-
-    return (
-        moving_average(review_cnt_per_day),
-        moving_average(cost_per_day),
-        moving_average(memorized_cnt_per_day),
-    )
-
-
-simulation_table = []
-
-
-def plot_simulation(policy, title):
-    review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(policy)
-    simulation_table.append(
-        (
-            title,
-            review_cnt_per_day.mean(),
-            cost_per_day.mean() / 60,
-            memorized_cnt_per_day[-1],
-        )
-    )
-    fig = plt.figure(figsize=(16, 8.5))
-    ax = fig.add_subplot(131)
-    ax.plot(review_cnt_per_day)
-    ax.set_title("Review Count")
-    ax = fig.add_subplot(132)
-    ax.plot(cost_per_day, label=f"Total Cost: {cost_per_day.sum():.2f}")
-    ax.set_title("Cost")
-    ax.legend()
-    ax = fig.add_subplot(133)
-    ax.plot(
-        memorized_cnt_per_day, label=f"Total Memorized: {memorized_cnt_per_day[-1]:.2f}"
-    )
-    ax.set_title("Memorized Count")
-    ax.legend()
-    plt.tight_layout()
-    plt.savefig(f"./simulation/{title}.png")
-    plt.close()
-
-
-plot_simulation(ssp_mmc_policy, "SSP-MMC")
-
-
-def optimal_policy_for_rating_sequence(rating_sequence: list[int]):
-    s_list = []
-    r_list = []
-    ivl_list = []
-    g_list = []
-    for i, rating in enumerate(rating_sequence):
-        g_list.append(rating)
-        if i == 0:
-            d_index, s_index = (
-                solver.d2i(init_difficulties[rating - 1]),
-                solver.s2i(init_stabilities[rating - 1]),
-            )
-            cur_s = solver.s_state[s_index]
-            cur_d = solver.d_state[d_index]
-        else:
-            optimal_r = retention_matrix[d_index, s_index]
-            s_list.append(cur_s)
-            r_list.append(optimal_r)
-            ivl_list.append(next_interval(cur_s, optimal_r))
-            cur_s = solver.stability_after_success(cur_s, cur_d, optimal_r, rating)
-            cur_d = solver.next_d(cur_d, rating)
-            d_index, s_index = solver.d2i(cur_d), solver.s2i(cur_s)
-
-        if cur_s > S_MAX:
-            break
-
-    return s_list, r_list, ivl_list, g_list
-
-
-def plot_optimal_policy_vs_stability(rating_sequence: list[int]):
-    s_list, r_list, ivl_list, g_list = optimal_policy_for_rating_sequence(
-        rating_sequence
-    )
-    fig = plt.figure(figsize=(16, 8.5))
-    ax = fig.add_subplot(121)
-    ax.plot(s_list, r_list, "*-")
-    ax.set_xlabel("Stability")
-    ax.set_ylabel("Optimal Retention")
-    ax.set_title(f"Optimal Retention vs Stability")
-    ax = fig.add_subplot(122)
-    ax.plot(s_list, ivl_list, "*-", label="Optimal")
-    ax.plot(s_list, s_list, "--", alpha=0.5, label="R=90%")
-    for s, ivl in zip(s_list, ivl_list):
-        ax.text(s + 1, ivl - 10, f"{ivl:.0f}", fontsize=10)
-    ax.set_xlabel("Stability")
-    ax.set_ylabel("Optimal Interval")
-    ax.set_title(f"Optimal Interval vs Stability")
-    ax.legend()
-    fig.suptitle(f"Rating Sequence: {','.join(map(str, g_list))}")
-    plt.tight_layout()
-    plt.savefig(f"./plot/OR-OI-{','.join(map(str, g_list))}.png")
-    plt.close()
-
-
-for rating in range(1, 5):
-    plot_optimal_policy_vs_stability([rating] + [3 for _ in range(100)])
-
-
-costs = []
-
-r_range = np.linspace(R_MIN, R_MAX, 10)
-
-for r in r_range:
-    print("--------------------------------")
-    start = time.time()
-    solver._init_state_spaces()
-    cost_matrix, r_state_mesh_2d = solver.evaluate_r_threshold(r)
-    end = time.time()
-    print(f"Time: {end - start:.2f}s")
+    cost_matrix, retention_matrix = solver.solve()
     init_stabilities = solver.init_s(np.arange(1, 5))
     init_difficulties = solver.init_d_with_short_term(np.arange(1, 5))
     init_cost = cost_matrix[solver.d2i(init_difficulties), solver.s2i(init_stabilities)]
     avg_cost = init_cost @ first_rating_prob
-    avg_retention = r_state_mesh_2d.mean()
-    print(f"Desired Retention: {r * 100:.2f}%")
-    print(f"True Retention: {avg_retention * 100:.2f}%")
-    costs.append(avg_cost)
+    print(f"Average cost: {avg_cost:.2f}")
+    avg_retention = retention_matrix.mean()
+    print(f"Average retention: {avg_retention:.2f}")
+
+    s_state_mesh_2d, d_state_mesh_2d = np.meshgrid(solver.s_state, solver.d_state)
     fig = plt.figure(figsize=(16, 8.5))
-    ax = fig.add_subplot(121, projection="3d")
+    ax = fig.add_subplot(131, projection="3d")
     ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, cost_matrix, cmap="viridis")
     ax.set_xlabel("Stability")
     ax.set_ylabel("Difficulty")
     ax.set_zlabel("Cost")
-    ax.set_title(f"Desired Retention: {r * 100:.2f}%, Avg Cost: {avg_cost:.2f}")
+    ax.set_title(f"Avg Init Cost: {avg_cost:.2f}")
     ax.set_box_aspect(None, zoom=0.8)
-    ax = fig.add_subplot(122, projection="3d")
-    ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, r_state_mesh_2d, cmap="viridis")
+
+    ax = fig.add_subplot(132, projection="3d")
+    ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, retention_matrix, cmap="viridis")
     ax.set_xlabel("Stability")
     ax.set_ylabel("Difficulty")
     ax.set_zlabel("Retention")
-    ax.set_title(f"True Retention: {avg_retention:.2f}")
+    ax.set_title(f"Avg Retention: {avg_retention:.2f}")
     ax.set_box_aspect(None, zoom=0.8)
+
+    ax = fig.add_subplot(133, projection="3d")
+    interval_matrix = next_interval(s_state_mesh_2d, retention_matrix)
+    ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, interval_matrix, cmap="viridis")
+    ax.set_xlabel("Stability")
+    ax.set_ylabel("Difficulty")
+    ax.set_zlabel("Interval")
+    ax.set_title("Interval")
+    ax.set_box_aspect(None, zoom=0.8)
+
     plt.tight_layout()
-    plt.savefig(f"./plot/DR={r:.2f}.png")
+    plt.savefig("./plot/SSP-MMC.png")
     plt.close()
-    plot_simulation(lambda s, d: next_interval(s, r), f"DR={r:.2f}")
 
-fig = plt.figure(figsize=(8, 8))
-ax = fig.add_subplot(111)
-optimal_retention = r_range[np.argmin(costs)]
-min_cost = np.min(costs)
-ax.plot(r_range, costs)
-ax.set_xlabel("Desired Retention")
-ax.set_ylabel("Average Cost")
-ax.set_title(
-    f"Optimal Retention: {optimal_retention * 100:.2f}%, Min Cost: {min_cost:.2f}"
-)
-plt.savefig("./plot/cost_vs_retention.png")
-plt.close()
+    def ssp_mmc_policy(s, d):
+        d_index = solver.d2i(d)
+        s_index = solver.s2i(s)
+        # Handle array inputs by checking each element
+        mask = (d_index >= solver.d_size) | (s_index >= solver.s_size - 1)
+        optimal_interval = np.zeros_like(s)
+        optimal_interval[~mask] = next_interval(
+            s[~mask], retention_matrix[d_index[~mask], s_index[~mask]]
+        )
+        optimal_interval[mask] = np.inf
+        return optimal_interval
 
+    def simulate_policy(policy):
+        (
+            _,
+            review_cnt_per_day,
+            _,
+            memorized_cnt_per_day,
+            cost_per_day,
+            _,
+        ) = simulate(
+            w=w,
+            policy=policy,
+            deck_size=10000,
+            learn_span=365 * 10,
+            loss_aversion=loss_aversion,
+            s_max=S_MAX,
+        )
 
-print("--------------------------------")
+        def moving_average(data, window_size=365 // 20):
+            weights = np.ones(window_size) / window_size
+            return np.convolve(data, weights, mode="valid")
 
-print(
-    "| Schedulling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute |"
-)
-print("| --- | --- | --- | --- | --- |")
-for title, review_cnt_per_day, cost_per_day, memorized_cnt_at_end in simulation_table:
-    print(
-        f"| {title} | {review_cnt_per_day:.1f} | {cost_per_day:.1f} | {memorized_cnt_at_end:.0f} | {memorized_cnt_at_end / cost_per_day:.0f} |"
+        return (
+            moving_average(review_cnt_per_day),
+            moving_average(cost_per_day),
+            moving_average(memorized_cnt_per_day),
+        )
+
+    simulation_table = []
+
+    def plot_simulation(policy, title):
+        review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(
+            policy
+        )
+        simulation_table.append(
+            (
+                title,
+                review_cnt_per_day.mean(),
+                cost_per_day.mean() / 60,
+                memorized_cnt_per_day[-1],
+            )
+        )
+        fig = plt.figure(figsize=(16, 8.5))
+        ax = fig.add_subplot(131)
+        ax.plot(review_cnt_per_day)
+        ax.set_title("Review Count")
+        ax = fig.add_subplot(132)
+        ax.plot(cost_per_day, label=f"Total Cost: {cost_per_day.sum():.2f}")
+        ax.set_title("Cost")
+        ax.legend()
+        ax = fig.add_subplot(133)
+        ax.plot(
+            memorized_cnt_per_day,
+            label=f"Total Memorized: {memorized_cnt_per_day[-1]:.2f}",
+        )
+        ax.set_title("Memorized Count")
+        ax.legend()
+        plt.tight_layout()
+        plt.savefig(f"./simulation/{title}.png")
+        plt.close()
+
+    plot_simulation(ssp_mmc_policy, "SSP-MMC")
+
+    def optimal_policy_for_rating_sequence(rating_sequence: list[int]):
+        s_list = []
+        r_list = []
+        ivl_list = []
+        g_list = []
+        for i, rating in enumerate(rating_sequence):
+            g_list.append(rating)
+            if i == 0:
+                d_index, s_index = (
+                    solver.d2i(init_difficulties[rating - 1]),
+                    solver.s2i(init_stabilities[rating - 1]),
+                )
+                cur_s = solver.s_state[s_index]
+                cur_d = solver.d_state[d_index]
+            else:
+                optimal_r = retention_matrix[d_index, s_index]
+                s_list.append(cur_s)
+                r_list.append(optimal_r)
+                ivl_list.append(next_interval(cur_s, optimal_r))
+                cur_s = solver.stability_after_success(cur_s, cur_d, optimal_r, rating)
+                cur_d = solver.next_d(cur_d, rating)
+                d_index, s_index = solver.d2i(cur_d), solver.s2i(cur_s)
+
+            if cur_s > S_MAX:
+                break
+
+        return s_list, r_list, ivl_list, g_list
+
+    def plot_optimal_policy_vs_stability(rating_sequence: list[int]):
+        s_list, r_list, ivl_list, g_list = optimal_policy_for_rating_sequence(
+            rating_sequence
+        )
+        fig = plt.figure(figsize=(16, 8.5))
+        ax = fig.add_subplot(121)
+        ax.plot(s_list, r_list, "*-")
+        ax.set_xlabel("Stability")
+        ax.set_ylabel("Optimal Retention")
+        ax.set_title(f"Optimal Retention vs Stability")
+        ax = fig.add_subplot(122)
+        ax.plot(s_list, ivl_list, "*-", label="Optimal")
+        ax.plot(s_list, s_list, "--", alpha=0.5, label="R=90%")
+        for s, ivl in zip(s_list, ivl_list):
+            ax.text(s + 1, ivl - 10, f"{ivl:.0f}", fontsize=10)
+        ax.set_xlabel("Stability")
+        ax.set_ylabel("Optimal Interval")
+        ax.set_title(f"Optimal Interval vs Stability")
+        ax.legend()
+        fig.suptitle(f"Rating Sequence: {','.join(map(str, g_list))}")
+        plt.tight_layout()
+        plt.savefig(f"./plot/OR-OI-{','.join(map(str, g_list))}.png")
+        plt.close()
+
+    for rating in range(1, 5):
+        plot_optimal_policy_vs_stability([rating] + [3 for _ in range(100)])
+
+    costs = []
+
+    r_range = np.linspace(R_MIN, R_MAX, 10)
+
+    for r in r_range:
+        print("--------------------------------")
+        start = time.time()
+        solver._init_state_spaces()
+        cost_matrix, r_state_mesh_2d = solver.evaluate_r_threshold(r)
+        end = time.time()
+        print(f"Time: {end - start:.2f}s")
+        init_stabilities = solver.init_s(np.arange(1, 5))
+        init_difficulties = solver.init_d_with_short_term(np.arange(1, 5))
+        init_cost = cost_matrix[
+            solver.d2i(init_difficulties), solver.s2i(init_stabilities)
+        ]
+        avg_cost = init_cost @ first_rating_prob
+        avg_retention = r_state_mesh_2d.mean()
+        print(f"Desired Retention: {r * 100:.2f}%")
+        print(f"True Retention: {avg_retention * 100:.2f}%")
+        costs.append(avg_cost)
+        fig = plt.figure(figsize=(16, 8.5))
+        ax = fig.add_subplot(121, projection="3d")
+        ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, cost_matrix, cmap="viridis")
+        ax.set_xlabel("Stability")
+        ax.set_ylabel("Difficulty")
+        ax.set_zlabel("Cost")
+        ax.set_title(f"Desired Retention: {r * 100:.2f}%, Avg Cost: {avg_cost:.2f}")
+        ax.set_box_aspect(None, zoom=0.8)
+        ax = fig.add_subplot(122, projection="3d")
+        ax.plot_surface(
+            s_state_mesh_2d, d_state_mesh_2d, r_state_mesh_2d, cmap="viridis"
+        )
+        ax.set_xlabel("Stability")
+        ax.set_ylabel("Difficulty")
+        ax.set_zlabel("Retention")
+        ax.set_title(f"True Retention: {avg_retention:.2f}")
+        ax.set_box_aspect(None, zoom=0.8)
+        plt.tight_layout()
+        plt.savefig(f"./plot/DR={r:.2f}.png")
+        plt.close()
+        plot_simulation(lambda s, d: next_interval(s, r), f"DR={r:.2f}")
+
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(111)
+    optimal_retention = r_range[np.argmin(costs)]
+    min_cost = np.min(costs)
+    ax.plot(r_range, costs)
+    ax.set_xlabel("Desired Retention")
+    ax.set_ylabel("Average Cost")
+    ax.set_title(
+        f"Optimal Retention: {optimal_retention * 100:.2f}%, Min Cost: {min_cost:.2f}"
     )
+    plt.savefig("./plot/cost_vs_retention.png")
+    plt.close()
+
+    print("--------------------------------")
+
+    print(
+        "| Schedulling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute |"
+    )
+    print("| --- | --- | --- | --- | --- |")
+    for (
+        title,
+        review_cnt_per_day,
+        cost_per_day,
+        memorized_cnt_at_end,
+    ) in simulation_table:
+        print(
+            f"| {title} | {review_cnt_per_day:.1f} | {cost_per_day:.1f} | {memorized_cnt_at_end:.0f} | {memorized_cnt_at_end / cost_per_day:.0f} |"
+        )
