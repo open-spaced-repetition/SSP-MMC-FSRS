@@ -61,4 +61,4 @@ SSP-MMC performs better over longer periods of time.
 
 ## Warning
 
-Currently, the SSP-MMC matrix cannot be constructed for 7544 out of 9999 users (75.4%) due to convergence failure. This indicates that the current implementation is not suitable for practical use and that further research is necessary.
+Currently, the SSP-MMC matrix can be constructed for 7544 out of 9999 users (75.4%), and fails to converge for the remaining users. This indicates that the current implementation is not suitable for practical use and that further research is necessary.
