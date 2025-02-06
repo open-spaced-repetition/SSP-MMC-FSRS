@@ -9,11 +9,12 @@ SSP-MMC-FSRS is an extended verson of [SSP-MMC](https://github.com/maimemo/SSP-M
 
 - Scheduling Policy: how the intervals are calculated. When SSP-MMC is used, the intervals are chosen so that the "cost" (in minutes of studying) is minimized. 
 When a fixed value of desired retention (DR) is used, the intervals correspond to the desired probability of recall. IVL means that constant interval lengths - in days - are used.
+- Average number of reviews per day: the average number of simulated reviews of flashcards per one day of the simulated review history. Lower is better.
 - Average number of minutes per day: same as above, but minutes of studying are used instead. Lower is better.
 - Total knowledge at the end: the sum of probabilities of recall of all reviewed cards by the end of the simulation. It cannot be greater than the deck size. Higher is better.
 - Knowledge per minute: a measure of learning efficiency. Higher is better.
 
-Deck size = 10,000 cards. New cards per day = 10, max. reviews per day = 9,999.
+Deck size = 10,000 cards, new cards per day = 10, max. reviews per day = 9,999, max. studying time per day = 360 minutes.
 
 The best result is highlighted in **bold**. The worst result is highlighted in $${\color{red}red}$$.
 
@@ -53,7 +54,7 @@ The best result is highlighted in **bold**. The worst result is highlighted in $
 | DR=0.91 | 55.8 | 12.2 | 9870 | 809 |
 | DR=0.94 | 71.8 | 13.8 | 9938 | 722 |
 | DR=0.97 | 118.5 | 19.3 | 9983 | 516 |
-| IVL=3 | $${\color{red}2383.5}$$ | $${\color{red}322.8}$$ | 8089 | $${\color{red}25}$$ |
+| IVL=3 | $${\color{red}2383.5}$$ | $${\color{red}322.8}$$ | $${\color{red}8089}$$ | $${\color{red}25}$$ |
 | IVL=7 | 1233.9 | 170.3 | **9999** | 59 |
 | IVL=30 | 286.9 | 48.3 | 9966 | 206 |
 
