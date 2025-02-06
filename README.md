@@ -35,7 +35,7 @@ The best result is highlighted in **bold**. The worst result is highlighted in $
 | DR=0.97 | 159.2 | 28.4 | 3501 | 123 |
 | IVL=3 | $${\color{red}603.3}$$ | $${\color{red}89.2}$$ | **3539** | $${\color{red}40}$$ |
 | IVL=7 | 255.7 | 44.9 | 3504 | 78 |
-| IVL=30 | 55.8 | 21.7 | $${\color{red}3100}$$ | 143 |
+| IVL=30 | 55.8 | 21.7 | 3100 | 143 |
 
 
 
