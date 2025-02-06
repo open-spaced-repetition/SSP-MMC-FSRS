@@ -619,6 +619,9 @@ if __name__ == "__main__":
     plt.savefig("./plot/cost_vs_retention.png")
     plt.close()
 
+    for fixed_interval in [3, 7, 30]:
+        plot_simulation(lambda s, d: fixed_interval, f"IVL={fixed_interval}")
+
     print("--------------------------------")
 
     print(
