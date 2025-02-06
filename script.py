@@ -213,6 +213,7 @@ class SSPMMCSolver:
         r_min=R_MIN,
         r_max=R_MAX,
         r_eps=R_EPS,
+        cost_max=1000,
     ):
         # Stability state space
         self.s_min = s_min
@@ -245,7 +246,7 @@ class SSPMMCSolver:
         self.r_state = np.linspace(self.r_min, self.r_max, self.r_size)
 
         # Initialize matrices
-        self.cost_matrix = np.full((self.d_size, self.s_size), 1000)
+        self.cost_matrix = np.full((self.d_size, self.s_size), cost_max)
         self.cost_matrix[:, -1] = 0
         self.retention_matrix = np.zeros_like(self.cost_matrix)
 
@@ -290,15 +291,8 @@ class SSPMMCSolver:
 
         return self.cost_matrix, self.retention_matrix
 
-    def evaluate_r_threshold(self, r_threshold, n_iter=10000):
-        """Evaluate the cost and retention for a given r threshold."""
-        self.r_state_mesh_2d = r_threshold * np.ones_like(self.cost_matrix)
-        self.s_state_mesh_2d, self.d_state_mesh_2d = np.meshgrid(
-            self.s_state, self.d_state
-        )
-        ivl_mesh = next_interval(self.s_state_mesh_2d, self.r_state_mesh_2d)
-        self.r_state_mesh_2d = power_forgetting_curve(ivl_mesh, self.s_state_mesh_2d)
-
+    def _evaluate_policy(self, n_iter=10000):
+        """Evaluate the cost and retention for a given r_state_mesh_2d."""
         i = 0
         cost_diff = 1000
         while i < n_iter and cost_diff > 1e-4 * self.s_size * self.d_size:
@@ -337,6 +331,16 @@ class SSPMMCSolver:
             self.cost_matrix = optimal_cost
             i += 1
         return self.cost_matrix, self.r_state_mesh_2d
+
+    def evaluate_r_threshold(self, r_threshold, n_iter=10000):
+        """Evaluate the cost and retention for a given r threshold."""
+        self.r_state_mesh_2d = r_threshold * np.ones_like(self.cost_matrix)
+        self.s_state_mesh_2d, self.d_state_mesh_2d = np.meshgrid(
+            self.s_state, self.d_state
+        )
+        ivl_mesh = next_interval(self.s_state_mesh_2d, self.r_state_mesh_2d)
+        self.r_state_mesh_2d = power_forgetting_curve(ivl_mesh, self.s_state_mesh_2d)
+        return self._evaluate_policy(n_iter)
 
     def _calculate_expected_cost(self):
         """Calculate expected cost for all possible next states."""
