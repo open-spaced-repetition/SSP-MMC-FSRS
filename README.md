@@ -9,6 +9,7 @@ SSP-MMC-FSRS is an extended verson of [SSP-MMC](https://github.com/maimemo/SSP-M
 
 - Scheduling Policy: how the intervals are calculated. When SSP-MMC is used, the intervals are chosen so that the "cost" (in minutes of studying) is minimized. 
 When a fixed value of desired retention (DR) is used, the intervals correspond to the desired probability of recall. IVL means that constant interval lengths - in days - are used.
+- Average number of reviews per day: the average number of simulated reviews of flashcards per one day of the simulated review history. Lower is better.
 - Average number of minutes per day: same as above, but minutes of studying are used instead. Lower is better.
 - Total knowledge at the end: the sum of probabilities of recall of all reviewed cards by the end of the simulation. It cannot be greater than the deck size. Higher is better.
 - Knowledge per minute: a measure of learning efficiency. Higher is better.
