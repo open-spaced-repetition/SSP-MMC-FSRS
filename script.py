@@ -162,7 +162,7 @@ class SSPMMCSolver:
 
         # Handle small values (logarithmic scale)
         result[small_mask] = np.clip(
-            np.floor(
+            np.ceil(
                 (np.log(s[small_mask]) - np.log(self.s_min)) / self.short_step
             ).astype(int),
             0,
@@ -171,7 +171,7 @@ class SSPMMCSolver:
 
         # Handle large values (linear scale)
         result[~small_mask] = len(self.s_state_small) + np.clip(
-            np.floor(
+            np.ceil(
                 (s[~small_mask] - self.s_state_small[-1] - self.long_step)
                 / self.long_step
             ).astype(int),
