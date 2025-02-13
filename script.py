@@ -275,7 +275,13 @@ class SSPMMCSolver:
 
             # Update retention matrix
             last_retention_matrix = self.retention_matrix.copy()
-            self.retention_matrix = self.r_state[np.argmin(expected_cost, axis=2)]
+            optimal_r_indices = np.argmin(expected_cost, axis=2)
+            d_indices, s_indices = np.meshgrid(
+                np.arange(self.d_size), np.arange(self.s_size), indexing="ij"
+            )
+            self.retention_matrix = self.r_state_mesh_3d[
+                d_indices, s_indices, optimal_r_indices
+            ]
             r_diff = np.abs(self.retention_matrix - last_retention_matrix).sum()
 
             if verbose and i % 10 == 0:
