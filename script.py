@@ -32,7 +32,7 @@ LONG_STEP = 10
 
 D_MIN = 1
 D_MAX = 10
-D_EPS = 1 / 3
+D_EPS = 0.1
 
 R_MIN = 0.70
 R_MAX = 0.97
