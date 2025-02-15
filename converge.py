@@ -77,3 +77,5 @@ if __name__ == "__main__":
 
     print("Unconverged user IDs:")
     print("\n".join(str(user_id) for user_id in unconverged_users))
+    with open("unconverged_users.json", "w") as f:
+        json.dump(unconverged_users, f)
