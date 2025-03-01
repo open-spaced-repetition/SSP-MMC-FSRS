@@ -28,8 +28,8 @@ loss_aversion = 2.5
 
 S_MIN = 0.1
 S_MAX = 365 * 3
-SHORT_STEP = np.log(2) / 15
-LONG_STEP = 10
+SHORT_STEP = np.log(2) / 20
+LONG_STEP = 5
 
 D_MIN = 1
 D_MAX = 10

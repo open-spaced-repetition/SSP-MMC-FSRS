@@ -43,7 +43,7 @@ The best result is highlighted in **bold**. The worst result is highlighted in $
 
 | Schedulling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute |
 | --- | --- | --- | --- | --- |
-| SSP-MMC | 46.6 | **11.6** | 9731 | **842** |
+| SSP-MMC | 45.4 | **11.4** | 9812 | **863** |
 | DR=0.70 | **29.6** | 12.0 | 8685 | 724 |
 | DR=0.73 | 31.1 | 11.8 | 8918 | 756 |
 | DR=0.76 | 33.5 | 11.8 | 9020 | 762 |
