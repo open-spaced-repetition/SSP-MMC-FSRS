@@ -38,6 +38,7 @@ D_EPS = 0.1
 R_MIN = 0.70
 R_MAX = 0.97
 R_EPS = 0.01
+DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 
 w = [
     0.40255,
@@ -61,21 +62,47 @@ w = [
     0.6621,
 ]
 
-def bellman_solver(n_iter, state_np: np.array, transitions_np: list[np.array], transition_probs_np: list[np.array], costs_np: np.array, discount_factor=1.0, device="cuda"):
+
+def bellman_solver(
+    n_iter,
+    state_np: np.array,
+    transitions_np: list[np.array],
+    transition_probs_np: list[np.array],
+    costs_np: np.array,
+    discount_factor=1.0,
+    device=DEVICE,
+):
     S, D, R = costs_np[0].shape
     DTYPE = torch.float32
     with torch.inference_mode():
         state = torch.tensor(state_np, requires_grad=False, device=device, dtype=DTYPE)
-        transitions = [torch.tensor(transition_np, requires_grad=False, device=device, dtype=torch.long) for transition_np in transitions_np]
-        transition_probs = [torch.tensor(transition_prob_np, requires_grad=False, device=device, dtype=DTYPE) for transition_prob_np in transition_probs_np]
-        costs = [torch.tensor(cost_np, requires_grad=False, device=device, dtype=DTYPE) for cost_np in costs_np]
+        transitions = [
+            torch.tensor(
+                transition_np, requires_grad=False, device=device, dtype=torch.long
+            )
+            for transition_np in transitions_np
+        ]
+        transition_probs = [
+            torch.tensor(
+                transition_prob_np, requires_grad=False, device=device, dtype=DTYPE
+            )
+            for transition_prob_np in transition_probs_np
+        ]
+        costs = [
+            torch.tensor(cost_np, requires_grad=False, device=device, dtype=DTYPE)
+            for cost_np in costs_np
+        ]
         it = 0
         cost_diff = 1e9
         while it < n_iter and cost_diff > 1e-5:
             it += 1
 
-            action_value = torch.zeros((S, D, R), requires_grad=False, device=device, dtype=DTYPE)
-            for transition, transition_prob, cost in zip(transitions, transition_probs, costs):
+            action_value = torch.zeros(
+                (S, D, R), requires_grad=False, device=device, dtype=DTYPE
+            )
+            for transition, transition_prob, cost in zip(
+                transitions, transition_probs, costs
+            ):
                 d, s = transition.unbind(dim=-1)
                 action_value += transition_prob * (cost + discount_factor * state[d, s])
 
@@ -89,6 +116,7 @@ def bellman_solver(n_iter, state_np: np.array, transitions_np: list[np.array], t
 
     print(f"Done. it: {it}, cost diff: {cost_diff}")
     return state.cpu().numpy(), optimal_action.cpu().numpy()
+
 
 class SSPMMCSolver:
     def __init__(
@@ -301,7 +329,9 @@ class SSPMMCSolver:
             )
         )
         next_d_again = self.next_d(self.d_state_mesh_3d, 1)
-        transitions.append(np.stack([self.d2i(next_d_again), self.s2i(next_s_again)], axis=-1))
+        transitions.append(
+            np.stack([self.d2i(next_d_again), self.s2i(next_s_again)], axis=-1)
+        )
         transition_probs.append(1.0 - self.r_state_mesh_3d)
         costs.append(zeros + self.review_costs[0] * self.loss_aversion)
 
@@ -315,8 +345,12 @@ class SSPMMCSolver:
             transition_probs.append(self.r_state_mesh_3d * self.review_rating_prob[i])
             costs.append(zeros + review_cost)
 
-        assert len(transitions) == len(transition_probs) and len(transitions) == len(costs)
-        self.cost_matrix, optimal_r_indices = bellman_solver(n_iter, self.cost_matrix, transitions, transition_probs, costs)
+        assert len(transitions) == len(transition_probs) and len(transitions) == len(
+            costs
+        )
+        self.cost_matrix, optimal_r_indices = bellman_solver(
+            n_iter, self.cost_matrix, transitions, transition_probs, costs
+        )
         retention_d_indices, retention_s_indices = np.meshgrid(
             np.arange(self.d_size), np.arange(self.s_size), indexing="ij"
         )
