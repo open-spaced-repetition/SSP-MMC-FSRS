@@ -378,7 +378,7 @@ class SSPMMCSolver:
 
     def _get_cost(self, s, d):
         """Get cost from cost matrix for given stability and difficulty."""
-        return np.zeros_like(self.cost_matrix[self.d2i(d), self.s2i(s)])
+        return self.cost_matrix[self.d2i(d), self.s2i(s)]
 
 
 if __name__ == "__main__":
