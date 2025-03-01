@@ -63,21 +63,20 @@ w = [
 
 def bellman_solver(n_iter, state_np: np.array, transitions_np: list[np.array], transition_probs_np: list[np.array], costs_np: np.array, discount_factor=1.0, device="cuda"):
     S, D, R = costs_np[0].shape
+    DTYPE = torch.float32
     with torch.inference_mode():
-        state = torch.tensor(state_np, requires_grad=False, device=device)
-        transitions = [torch.tensor(transition_np, requires_grad=False, device=device) for transition_np in transitions_np]
-        transition_probs = [torch.tensor(transition_prob_np, requires_grad=False, device=device) for transition_prob_np in transition_probs_np]
-        costs = [torch.tensor(cost_np, requires_grad=False, device=device) for cost_np in costs_np]
+        state = torch.tensor(state_np, requires_grad=False, device=device, dtype=DTYPE)
+        transitions = [torch.tensor(transition_np, requires_grad=False, device=device, dtype=torch.long) for transition_np in transitions_np]
+        transition_probs = [torch.tensor(transition_prob_np, requires_grad=False, device=device, dtype=DTYPE) for transition_prob_np in transition_probs_np]
+        costs = [torch.tensor(cost_np, requires_grad=False, device=device, dtype=DTYPE) for cost_np in costs_np]
         it = 0
         cost_diff = 1e9
         while it < n_iter and cost_diff > 1e-5:
             it += 1
 
-            action_value = torch.zeros((S, D, R), requires_grad=False, device=device)
-            transition_prob_sum = 0
+            action_value = torch.zeros((S, D, R), requires_grad=False, device=device, dtype=DTYPE)
             for transition, transition_prob, cost in zip(transitions, transition_probs, costs):
                 d, s = transition.unbind(dim=-1)
-                transition_prob_sum += transition_prob
                 action_value += transition_prob * (cost + discount_factor * state[d, s])
 
             optimal_value, optimal_action = action_value.min(dim=-1)
@@ -85,11 +84,10 @@ def bellman_solver(n_iter, state_np: np.array, transitions_np: list[np.array], t
             cost_diff = torch.abs(optimal_value - state).sum().item()
             state = optimal_value
 
-            if it % 1 == 0:
+            if it % 100 == 0:
                 print(f"it: {it}, cost diff: {cost_diff}")
-        
-        print(f"Done. it: {it}, cost diff: {cost_diff}")
-    
+
+    print(f"Done. it: {it}, cost diff: {cost_diff}")
     return state.cpu().numpy(), optimal_action.cpu().numpy()
 
 class SSPMMCSolver:
@@ -291,6 +289,7 @@ class SSPMMCSolver:
         # Initial setup
         ivl_mesh = next_interval(self.s_state_mesh_3d, self.r_state_mesh_3d)
         self.r_state_mesh_3d = power_forgetting_curve(ivl_mesh, self.s_state_mesh_3d)
+        zeros = np.zeros_like(self.s_state_mesh_3d)  # For broadcasting
         transitions = []
         transition_probs = []
         costs = []
@@ -302,16 +301,11 @@ class SSPMMCSolver:
             )
         )
         next_d_again = self.next_d(self.d_state_mesh_3d, 1)
-        transitions.append(np.stack([self.d2i(next_s_again), self.s2i(next_d_again)], axis=-1))
+        transitions.append(np.stack([self.d2i(next_d_again), self.s2i(next_s_again)], axis=-1))
         transition_probs.append(1.0 - self.r_state_mesh_3d)
-        cost_again = (
-            self._get_cost(next_s_again, next_d_again)
-            + self.review_costs[0] * self.loss_aversion
-        )
-        costs.append(cost_again)
+        costs.append(zeros + self.review_costs[0] * self.loss_aversion)
 
         # Calculate costs for each rating
-        costs = []
         for i, (g, review_cost) in enumerate(zip([2, 3, 4], self.review_costs[1:])):
             next_s = self.stability_after_success(
                 self.s_state_mesh_3d, self.d_state_mesh_3d, self.r_state_mesh_3d, g
@@ -319,8 +313,9 @@ class SSPMMCSolver:
             next_d = self.next_d(self.d_state_mesh_3d, g)
             transitions.append(np.stack([self.d2i(next_d), self.s2i(next_s)], axis=-1))
             transition_probs.append(self.r_state_mesh_3d * self.review_rating_prob[i])
-            costs.append(self._get_cost(next_s, next_d) + review_cost)
+            costs.append(zeros + review_cost)
 
+        assert len(transitions) == len(transition_probs) and len(transitions) == len(costs)
         self.cost_matrix, optimal_r_indices = bellman_solver(n_iter, self.cost_matrix, transitions, transition_probs, costs)
         retention_d_indices, retention_s_indices = np.meshgrid(
             np.arange(self.d_size), np.arange(self.s_size), indexing="ij"
@@ -329,52 +324,6 @@ class SSPMMCSolver:
             retention_d_indices, retention_s_indices, optimal_r_indices
         ]
         return self.cost_matrix, self.retention_matrix
-        # # Combine costs according to probabilities
-        # return (
-        #     self.r_state_mesh_3d
-        #     * (
-        #         self.review_rating_prob[0] * costs[0]
-        #         + self.review_rating_prob[1] * costs[1]
-        #         + self.review_rating_prob[2] * costs[2]
-        #     )
-        #     + (1 - self.r_state_mesh_3d) * cost_again
-        # )
-
-
-
-
-
-        # while i < n_iter and cost_diff > 1e-4 * self.s_size * self.d_size:
-        #     expected_cost = self._calculate_expected_cost()
-
-        #     # Update cost matrix
-        #     optimal_cost = np.minimum(self.cost_matrix, expected_cost.min(axis=2))
-        #     cost_diff = np.sum(self.cost_matrix - optimal_cost)
-        #     self.cost_matrix = optimal_cost
-
-        #     # Update retention matrix
-        #     last_retention_matrix = self.retention_matrix.copy()
-        #     optimal_r_indices = np.argmin(expected_cost, axis=2)
-        #     d_indices, s_indices = np.meshgrid(
-        #         np.arange(self.d_size), np.arange(self.s_size), indexing="ij"
-        #     )
-        #     self.retention_matrix = self.r_state_mesh_3d[
-        #         d_indices, s_indices, optimal_r_indices
-        #     ]
-        #     r_diff = np.abs(self.retention_matrix - last_retention_matrix).sum()
-
-        #     if verbose and i % 10 == 0:
-        #         print(
-        #             f"iteration {i:>5}, cost diff {cost_diff:.2f}, "
-        #             f"retention diff {r_diff:.2f}, "
-        #             f"elapsed time {time.time() - start:.1f}s"
-        #         )
-        #     i += 1
-
-        # if verbose:
-        #     print(f"Time: {time.time() - start:.2f}s")
-
-        # return self.cost_matrix, self.retention_matrix
 
     def _evaluate_policy(self, n_iter=10000):
         """Evaluate the cost and retention for a given r_state_mesh_2d."""
@@ -427,45 +376,8 @@ class SSPMMCSolver:
         self.r_state_mesh_2d = power_forgetting_curve(ivl_mesh, self.s_state_mesh_2d)
         return self._evaluate_policy(n_iter)
 
-    # def _calculate_expected_cost(self):
-    #     """Calculate expected cost for all possible next states."""
-    #     # Again case
-    #     next_s_again = self.stability_short_term(
-    #         self.stability_after_failure(
-    #             self.s_state_mesh_3d, self.d_state_mesh_3d, self.r_state_mesh_3d
-    #         )
-    #     )
-    #     next_d_again = self.next_d(self.d_state_mesh_3d, 1)
-    #     cost_again = (
-    #         self._get_cost(next_s_again, next_d_again)
-    #         + self.review_costs[0] * self.loss_aversion
-    #     )
-
-    #     # Calculate costs for each rating
-    #     costs = []
-    #     for g, review_cost in zip([2, 3, 4], self.review_costs[1:]):
-    #         next_s = self.stability_after_success(
-    #             self.s_state_mesh_3d, self.d_state_mesh_3d, self.r_state_mesh_3d, g
-    #         )
-    #         next_d = self.next_d(self.d_state_mesh_3d, g)
-    #         costs.append(self._get_cost(next_s, next_d) + review_cost)
-
-    #     # Combine costs according to probabilities
-    #     return (
-    #         self.r_state_mesh_3d
-    #         * (
-    #             self.review_rating_prob[0] * costs[0]
-    #             + self.review_rating_prob[1] * costs[1]
-    #             + self.review_rating_prob[2] * costs[2]
-    #         )
-    #         + (1 - self.r_state_mesh_3d) * cost_again
-    #     )
-
     def _get_cost(self, s, d):
         """Get cost from cost matrix for given stability and difficulty."""
-        # return self.cost_matrix[self.d2i(d), self.s2i(s)]
-        # print(self.cost_matrix[self.d2i(d), self.s2i(s)].shape)
-        # print(np.zeros_like(self.cost_matrix[self.d2i(d), self.s2i(s)]).shape)
         return np.zeros_like(self.cost_matrix[self.d2i(d), self.s2i(s)])
 
 
@@ -596,119 +508,119 @@ if __name__ == "__main__":
 
     plot_simulation(ssp_mmc_policy, "SSP-MMC")
 
-    # def optimal_policy_for_rating_sequence(rating_sequence: list[int]):
-    #     s_list = []
-    #     r_list = []
-    #     ivl_list = []
-    #     g_list = []
-    #     for i, rating in enumerate(rating_sequence):
-    #         g_list.append(rating)
-    #         if i == 0:
-    #             d_index, s_index = (
-    #                 solver.d2i(init_difficulties[rating - 1]),
-    #                 solver.s2i(init_stabilities[rating - 1]),
-    #             )
-    #             cur_s = solver.s_state[s_index]
-    #             cur_d = solver.d_state[d_index]
-    #         else:
-    #             optimal_r = retention_matrix[d_index, s_index]
-    #             s_list.append(cur_s)
-    #             r_list.append(optimal_r)
-    #             ivl_list.append(next_interval(cur_s, optimal_r))
-    #             cur_s = solver.stability_after_success(cur_s, cur_d, optimal_r, rating)
-    #             cur_d = solver.next_d(cur_d, rating)
-    #             d_index, s_index = solver.d2i(cur_d), solver.s2i(cur_s)
+    def optimal_policy_for_rating_sequence(rating_sequence: list[int]):
+        s_list = []
+        r_list = []
+        ivl_list = []
+        g_list = []
+        for i, rating in enumerate(rating_sequence):
+            g_list.append(rating)
+            if i == 0:
+                d_index, s_index = (
+                    solver.d2i(init_difficulties[rating - 1]),
+                    solver.s2i(init_stabilities[rating - 1]),
+                )
+                cur_s = solver.s_state[s_index]
+                cur_d = solver.d_state[d_index]
+            else:
+                optimal_r = retention_matrix[d_index, s_index]
+                s_list.append(cur_s)
+                r_list.append(optimal_r)
+                ivl_list.append(next_interval(cur_s, optimal_r))
+                cur_s = solver.stability_after_success(cur_s, cur_d, optimal_r, rating)
+                cur_d = solver.next_d(cur_d, rating)
+                d_index, s_index = solver.d2i(cur_d), solver.s2i(cur_s)
 
-    #         if cur_s > S_MAX:
-    #             break
+            if cur_s > S_MAX:
+                break
 
-    #     return s_list, r_list, ivl_list, g_list
+        return s_list, r_list, ivl_list, g_list
 
-    # def plot_optimal_policy_vs_stability(rating_sequence: list[int]):
-    #     s_list, r_list, ivl_list, g_list = optimal_policy_for_rating_sequence(
-    #         rating_sequence
-    #     )
-    #     fig = plt.figure(figsize=(16, 8.5))
-    #     ax = fig.add_subplot(121)
-    #     ax.plot(s_list, r_list, "*-")
-    #     ax.set_xlabel("Stability")
-    #     ax.set_ylabel("Optimal Retention")
-    #     ax.set_title(f"Optimal Retention vs Stability")
-    #     ax = fig.add_subplot(122)
-    #     ax.plot(s_list, ivl_list, "*-", label="Optimal")
-    #     ax.plot(s_list, s_list, "--", alpha=0.5, label="R=90%")
-    #     for s, ivl in zip(s_list, ivl_list):
-    #         ax.text(s + 1, ivl - 10, f"{ivl:.0f}", fontsize=10)
-    #     ax.set_xlabel("Stability")
-    #     ax.set_ylabel("Optimal Interval")
-    #     ax.set_title(f"Optimal Interval vs Stability")
-    #     ax.legend()
-    #     fig.suptitle(f"Rating Sequence: {','.join(map(str, g_list))}")
-    #     plt.tight_layout()
-    #     plt.savefig(f"./plot/OR-OI-{','.join(map(str, g_list))}.png")
-    #     plt.close()
+    def plot_optimal_policy_vs_stability(rating_sequence: list[int]):
+        s_list, r_list, ivl_list, g_list = optimal_policy_for_rating_sequence(
+            rating_sequence
+        )
+        fig = plt.figure(figsize=(16, 8.5))
+        ax = fig.add_subplot(121)
+        ax.plot(s_list, r_list, "*-")
+        ax.set_xlabel("Stability")
+        ax.set_ylabel("Optimal Retention")
+        ax.set_title(f"Optimal Retention vs Stability")
+        ax = fig.add_subplot(122)
+        ax.plot(s_list, ivl_list, "*-", label="Optimal")
+        ax.plot(s_list, s_list, "--", alpha=0.5, label="R=90%")
+        for s, ivl in zip(s_list, ivl_list):
+            ax.text(s + 1, ivl - 10, f"{ivl:.0f}", fontsize=10)
+        ax.set_xlabel("Stability")
+        ax.set_ylabel("Optimal Interval")
+        ax.set_title(f"Optimal Interval vs Stability")
+        ax.legend()
+        fig.suptitle(f"Rating Sequence: {','.join(map(str, g_list))}")
+        plt.tight_layout()
+        plt.savefig(f"./plot/OR-OI-{','.join(map(str, g_list))}.png")
+        plt.close()
 
-    # for rating in range(1, 5):
-    #     plot_optimal_policy_vs_stability([rating] + [3 for _ in range(100)])
+    for rating in range(1, 5):
+        plot_optimal_policy_vs_stability([rating] + [3 for _ in range(100)])
 
-    # costs = []
+    costs = []
 
-    # r_range = np.linspace(R_MIN, R_MAX, 10)
+    r_range = np.linspace(R_MIN, R_MAX, 10)
 
-    # for r in r_range:
-    #     print("--------------------------------")
-    #     start = time.time()
-    #     solver._init_state_spaces()
-    #     cost_matrix, r_state_mesh_2d = solver.evaluate_r_threshold(r)
-    #     end = time.time()
-    #     print(f"Time: {end - start:.2f}s")
-    #     init_stabilities = solver.init_s(np.arange(1, 5))
-    #     init_difficulties = solver.init_d_with_short_term(np.arange(1, 5))
-    #     init_cost = cost_matrix[
-    #         solver.d2i(init_difficulties), solver.s2i(init_stabilities)
-    #     ]
-    #     avg_cost = init_cost @ first_rating_prob
-    #     avg_retention = r_state_mesh_2d.mean()
-    #     print(f"Desired Retention: {r * 100:.2f}%")
-    #     print(f"True Retention: {avg_retention * 100:.2f}%")
-    #     costs.append(avg_cost)
-    #     fig = plt.figure(figsize=(16, 8.5))
-    #     ax = fig.add_subplot(121, projection="3d")
-    #     ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, cost_matrix, cmap="viridis")
-    #     ax.set_xlabel("Stability")
-    #     ax.set_ylabel("Difficulty")
-    #     ax.set_zlabel("Cost")
-    #     ax.set_title(f"Desired Retention: {r * 100:.2f}%, Avg Cost: {avg_cost:.2f}")
-    #     ax.set_box_aspect(None, zoom=0.8)
-    #     ax = fig.add_subplot(122, projection="3d")
-    #     ax.plot_surface(
-    #         s_state_mesh_2d, d_state_mesh_2d, r_state_mesh_2d, cmap="viridis"
-    #     )
-    #     ax.set_xlabel("Stability")
-    #     ax.set_ylabel("Difficulty")
-    #     ax.set_zlabel("Retention")
-    #     ax.set_title(f"True Retention: {avg_retention:.2f}")
-    #     ax.set_box_aspect(None, zoom=0.8)
-    #     plt.tight_layout()
-    #     plt.savefig(f"./plot/DR={r:.2f}.png")
-    #     plt.close()
-    #     plot_simulation(lambda s, d: next_interval(s, r), f"DR={r:.2f}")
+    for r in r_range:
+        print("--------------------------------")
+        start = time.time()
+        solver._init_state_spaces()
+        cost_matrix, r_state_mesh_2d = solver.evaluate_r_threshold(r)
+        end = time.time()
+        print(f"Time: {end - start:.2f}s")
+        init_stabilities = solver.init_s(np.arange(1, 5))
+        init_difficulties = solver.init_d_with_short_term(np.arange(1, 5))
+        init_cost = cost_matrix[
+            solver.d2i(init_difficulties), solver.s2i(init_stabilities)
+        ]
+        avg_cost = init_cost @ first_rating_prob
+        avg_retention = r_state_mesh_2d.mean()
+        print(f"Desired Retention: {r * 100:.2f}%")
+        print(f"True Retention: {avg_retention * 100:.2f}%")
+        costs.append(avg_cost)
+        fig = plt.figure(figsize=(16, 8.5))
+        ax = fig.add_subplot(121, projection="3d")
+        ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, cost_matrix, cmap="viridis")
+        ax.set_xlabel("Stability")
+        ax.set_ylabel("Difficulty")
+        ax.set_zlabel("Cost")
+        ax.set_title(f"Desired Retention: {r * 100:.2f}%, Avg Cost: {avg_cost:.2f}")
+        ax.set_box_aspect(None, zoom=0.8)
+        ax = fig.add_subplot(122, projection="3d")
+        ax.plot_surface(
+            s_state_mesh_2d, d_state_mesh_2d, r_state_mesh_2d, cmap="viridis"
+        )
+        ax.set_xlabel("Stability")
+        ax.set_ylabel("Difficulty")
+        ax.set_zlabel("Retention")
+        ax.set_title(f"True Retention: {avg_retention:.2f}")
+        ax.set_box_aspect(None, zoom=0.8)
+        plt.tight_layout()
+        plt.savefig(f"./plot/DR={r:.2f}.png")
+        plt.close()
+        plot_simulation(lambda s, d: next_interval(s, r), f"DR={r:.2f}")
 
-    # fig = plt.figure(figsize=(8, 8))
-    # ax = fig.add_subplot(111)
-    # optimal_retention = r_range[np.argmin(costs)]
-    # min_cost = np.min(costs)
-    # ax.plot(r_range, costs)
-    # ax.set_xlabel("Desired Retention")
-    # ax.set_ylabel("Average Cost")
-    # ax.set_title(
-    #     f"Optimal Retention: {optimal_retention * 100:.2f}%, Min Cost: {min_cost:.2f}"
-    # )
-    # plt.savefig("./plot/cost_vs_retention.png")
-    # plt.close()
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(111)
+    optimal_retention = r_range[np.argmin(costs)]
+    min_cost = np.min(costs)
+    ax.plot(r_range, costs)
+    ax.set_xlabel("Desired Retention")
+    ax.set_ylabel("Average Cost")
+    ax.set_title(
+        f"Optimal Retention: {optimal_retention * 100:.2f}%, Min Cost: {min_cost:.2f}"
+    )
+    plt.savefig("./plot/cost_vs_retention.png")
+    plt.close()
 
-    # for fixed_interval in [3, 7, 30]:
-    #     plot_simulation(lambda s, d: fixed_interval, f"IVL={fixed_interval}")
+    for fixed_interval in [3, 7, 30]:
+        plot_simulation(lambda s, d: fixed_interval, f"IVL={fixed_interval}")
 
     print("--------------------------------")
 
