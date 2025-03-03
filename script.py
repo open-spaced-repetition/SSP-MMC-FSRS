@@ -38,7 +38,11 @@ D_EPS = 0.1
 R_MIN = 0.70
 R_MAX = 0.97
 R_EPS = 0.01
-DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+DEVICE = (
+    "cuda"
+    if torch.cuda.is_available()
+    else "mps" if torch.backends.mps.is_available() else "cpu"
+)
 
 w = [
     0.40255,
@@ -363,13 +367,25 @@ class SSPMMCSolver:
         """Evaluate the cost and retention for a given r_state_mesh_2d."""
         i = 0
         cost_diff = 1000
-        while i < n_iter and cost_diff > 1e-4 * self.s_size * self.d_size:
-            next_s_again = self.stability_short_term(
-                self.stability_after_failure(
-                    self.s_state_mesh_2d, self.d_state_mesh_2d, self.r_state_mesh_2d
-                )
+        # Pre-calculate next states for again case
+        next_s_again = self.stability_short_term(
+            self.stability_after_failure(
+                self.s_state_mesh_2d, self.d_state_mesh_2d, self.r_state_mesh_2d
             )
-            next_d_again = self.next_d(self.d_state_mesh_2d, 1)
+        )
+        next_d_again = self.next_d(self.d_state_mesh_2d, 1)
+        # Pre-calculate next states for each rating
+        next_s_list = []
+        next_d_list = []
+        for g in [2, 3, 4]:
+            next_s = self.stability_after_success(
+                self.s_state_mesh_2d, self.d_state_mesh_2d, self.r_state_mesh_2d, g
+            )
+            next_d = self.next_d(self.d_state_mesh_2d, g)
+            next_s_list.append(next_s)
+            next_d_list.append(next_d)
+
+        while i < n_iter and cost_diff > 1e-4 * self.s_size * self.d_size:
             cost_again = (
                 self._get_cost(next_s_again, next_d_again)
                 + self.review_costs[0] * self.loss_aversion
@@ -377,11 +393,9 @@ class SSPMMCSolver:
 
             # Calculate costs for each rating
             costs = []
-            for g, review_cost in zip([2, 3, 4], self.review_costs[1:]):
-                next_s = self.stability_after_success(
-                    self.s_state_mesh_2d, self.d_state_mesh_2d, self.r_state_mesh_2d, g
-                )
-                next_d = self.next_d(self.d_state_mesh_2d, g)
+            for next_s, next_d, review_cost in zip(
+                next_s_list, next_d_list, self.review_costs[1:]
+            ):
                 costs.append(self._get_cost(next_s, next_d) + review_cost)
 
             expected_cost = (
