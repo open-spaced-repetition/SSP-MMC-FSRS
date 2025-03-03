@@ -24,7 +24,7 @@ first_rating_offsets = DEFAULT_FIRST_RATING_OFFSETS
 first_session_lens = DEFAULT_FIRST_SESSION_LENS
 forget_rating_offset = DEFAULT_FORGET_RATING_OFFSET
 forget_session_len = DEFAULT_FORGET_SESSION_LEN
-loss_aversion = 2.5
+LOSS_AVERSION = 2.5
 
 S_MIN = 0.1
 S_MAX = 365 * 3
@@ -438,7 +438,7 @@ if __name__ == "__main__":
         first_session_lens=DEFAULT_FIRST_SESSION_LENS,
         forget_rating_offset=DEFAULT_FORGET_RATING_OFFSET,
         forget_session_len=DEFAULT_FORGET_SESSION_LEN,
-        loss_aversion=2.5,
+        loss_aversion=LOSS_AVERSION,
         w=w,
     )
 
@@ -507,7 +507,7 @@ if __name__ == "__main__":
             policy=policy,
             deck_size=10000,
             learn_span=365 * 10,
-            loss_aversion=loss_aversion,
+            loss_aversion=LOSS_AVERSION,
             s_max=S_MAX,
         )
 
