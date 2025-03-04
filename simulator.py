@@ -1,3 +1,4 @@
+import random
 import numpy as np
 import math
 from tqdm import trange
@@ -9,6 +10,7 @@ FACTOR = 0.9 ** (1.0 / DECAY) - 1.0
 
 def power_forgetting_curve(t, s, s_max=math.inf):
     return np.where(s > s_max, 1, (1 + FACTOR * t / s) ** DECAY)
+    # return (1 + FACTOR * t / s) ** DECAY
 
 
 def next_interval(s, r):
@@ -27,6 +29,7 @@ columns = [
     "due",
     "ivl",
     "cost",
+    "cum_cost",
     "rand",
     "rating",
 ]
@@ -71,6 +74,7 @@ def simulate(
         [1, 2, 3, 4], deck_size, p=first_rating_prob
     )
     card_table[col["rating"]] = card_table[col["rating"]].astype(int)
+    card_table[col["cum_cost"]] = 0
 
     revlogs = {}
     review_cnt_per_day = np.zeros(learn_span)
@@ -231,15 +235,36 @@ def simulate(
             "rating": card_table[col["rating"]][true_review | true_learn],
         }
 
+        np.set_printoptions(edgeitems=20)
+        card_table[col["cum_cost"]][true_review | true_learn] += card_table[col["cost"]][true_review | true_learn]
         review_cnt_per_day[today] = np.sum(true_review)
         learn_cnt_per_day[today] = np.sum(true_learn)
-        memorized_cnt_per_day[today] = card_table[col["retrievability"]].sum()
+        # memorized_cnt_per_day[today] = card_table[col["retrievability"]].sum()
+        reached_target = card_table[col["stability"]] > s_max
+        memorized_cnt_per_day[today] = reached_target.sum()
+        # cost_per_day[today] = card_table[col["cost"]][reached_target & (true_review | true_learn)].sum()
         cost_per_day[today] = card_table[col["cost"]][true_review | true_learn].sum()
+        cost_reached = card_table[col["cum_cost"]][reached_target].mean()
+
+    if len(card_table[col["cum_cost"]][reached_target]) > 0:
+        z = card_table[col["cum_cost"]][reached_target]
+        # print("here", z.min(), z.max())
+        # np.set_printoptions(linewidth=200)
+        # np.set_printoptions(edgeitems=20)
+        # print(card_table[col["reps"]][reached_target])
+        # print(card_table[col["lapses"]][reached_target])
+        # print(card_table[col["cum_cost"]][reached_target])
+        # print(card_table[col["cum_cost"]][reached_target] / card_table[col["reps"]][reached_target])
+        # print(card_table[col["cost"]][reached_target])
+        # print(cost_reached)
+        # print(cost_per_day[today])
+        # print(card_table[col["cost"]][reached_target & (true_review | true_learn)].sum())
     return (
         card_table,
         review_cnt_per_day,
         learn_cnt_per_day,
         memorized_cnt_per_day,
         cost_per_day,
+        cost_reached,
         revlogs,
     )

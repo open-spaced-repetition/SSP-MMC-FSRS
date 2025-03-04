@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 from simulator import (
+    DECAY,
     DEFAULT_REVIEW_COSTS,
     DEFAULT_FIRST_RATING_PROB,
     DEFAULT_REVIEW_RATING_PROB,
@@ -10,6 +11,7 @@ from simulator import (
     DEFAULT_FIRST_SESSION_LENS,
     DEFAULT_FORGET_RATING_OFFSET,
     DEFAULT_FORGET_SESSION_LEN,
+    FACTOR,
     power_forgetting_curve,
     next_interval,
     simulate,
@@ -121,6 +123,21 @@ def bellman_solver(
     print(f"Done. it: {it}, cost diff: {cost_diff}")
     return state.cpu().numpy(), optimal_action.cpu().numpy()
 
+def max_r_to_reach_next_stability(s, s_next, d, rating):
+    hard_penalty = np.where(rating == 2, w[15], 1)
+    easy_bonus = np.where(rating == 4, w[16], 1)
+    c = np.exp(w[8]) * (11 - d) * np.power(s, -w[9]) * hard_penalty * easy_bonus
+
+    # let f(r) = e^((1-r) * w[10])  - 1
+    # Then s_next = s * (1 + c * f(r))
+    # => f(r) = (s_next / s - 1) / c
+    # => e^((1 - r) * w[10]) - 1 = (s_next / s - 1) / c
+    # => 1 - r = log(((s_next / s - 1) / c + 1)) / w[10]
+    return np.maximum(0.01, 1 - np.log(((s_next / s - 1) / c + 1)) / w[10])
+
+def next_interval_ceil(s, r):
+    ivl = s / FACTOR * (r ** (1.0 / DECAY) - 1.0)
+    return np.maximum(1, np.ceil(ivl))
 
 class SSPMMCSolver:
     def __init__(
@@ -501,6 +518,7 @@ if __name__ == "__main__":
             _,
             memorized_cnt_per_day,
             cost_per_day,
+            cost_reached,
             _,
         ) = simulate(
             w=w,
@@ -519,12 +537,13 @@ if __name__ == "__main__":
             moving_average(review_cnt_per_day),
             moving_average(cost_per_day),
             moving_average(memorized_cnt_per_day),
+            cost_reached,
         )
 
     simulation_table = []
 
     def plot_simulation(policy, title):
-        review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(
+        review_cnt_per_day, cost_per_day, memorized_cnt_per_day, cost_reached = simulate_policy(
             policy
         )
         simulation_table.append(
@@ -533,6 +552,7 @@ if __name__ == "__main__":
                 review_cnt_per_day.mean(),
                 cost_per_day.mean() / 60,
                 memorized_cnt_per_day[-1],
+                cost_reached,
             )
         )
         fig = plt.figure(figsize=(16, 8.5))
@@ -555,6 +575,17 @@ if __name__ == "__main__":
         plt.close()
 
     plot_simulation(ssp_mmc_policy, "SSP-MMC")
+    # tot_ssp_mmc = 0
+    # n_ssp_mmc = 0
+    # for i in range(30):
+    #     review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(
+    #         ssp_mmc_policy
+    #     )
+    #     cost_per_day = cost_per_day.mean() / 60
+    #     memorized_cnt_per_day = memorized_cnt_per_day[-1]
+    #     tot_ssp_mmc += memorized_cnt_per_day / cost_per_day
+    #     n_ssp_mmc += 1
+    #     print("mmc", i, tot_ssp_mmc / n_ssp_mmc)
 
     def optimal_policy_for_rating_sequence(rating_sequence: list[int]):
         s_list = []
@@ -652,7 +683,26 @@ if __name__ == "__main__":
         plt.tight_layout()
         plt.savefig(f"./plot/DR={r:.2f}.png")
         plt.close()
-        plot_simulation(lambda s, d: next_interval(s, r), f"DR={r:.2f}")
+
+        def s_max_aware_next_interval(s, d, r):
+            # Finds the minimum interval required to reach a stability of at least S_MAX if the rating is at least 3.
+            # This new interval must satisfy r >= DR
+            int_base = next_interval(s, r)
+            int_req = next_interval_ceil(s, max_r_to_reach_next_stability(s, S_MAX + 1e-3, d, np.full_like(s, 3)))
+            return np.where(s > S_MAX, 1e9, np.minimum(int_base, int_req))
+        plot_simulation(lambda s, d: s_max_aware_next_interval(s, d, r), f"DR={r:.2f}")
+
+        # tot_dr = 0
+        # n_dr = 0
+        # for i in range(30):
+        #     review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(
+        #         lambda s, d: s_max_aware_next_interval(s, d, r)
+        #     )
+        #     cost_per_day = cost_per_day.mean() / 60
+        #     memorized_cnt_per_day = memorized_cnt_per_day[-1]
+        #     tot_dr += memorized_cnt_per_day / cost_per_day
+        #     n_dr += 1
+        #     print("dr", i, tot_dr / n_dr)
 
     fig = plt.figure(figsize=(8, 8))
     ax = fig.add_subplot(111)
@@ -668,7 +718,17 @@ if __name__ == "__main__":
     plt.close()
 
     for fixed_interval in [3, 7, 30]:
-        plot_simulation(lambda s, d: fixed_interval, f"IVL={fixed_interval}")
+        def s_max_aware_fixed_interval(s, d):
+            # Finds the minimum interval required to reach a stability of at least S_MAX if the rating is at least 3.
+            # This new interval must satisfy r >= DR
+            int_base = fixed_interval
+            int_req = next_interval_ceil(s, max_r_to_reach_next_stability(s, S_MAX + 1, d, np.full_like(s, 3)))
+            # print("base", int_base)
+            # print("req", int_req)
+            return np.where(s > S_MAX, 1e9, np.minimum(int_base, int_req))
+            # return np.where(s > S_MAX, 1e9, int_base)
+            # return int_base
+        plot_simulation(lambda s, d: s_max_aware_fixed_interval(s, d), f"IVL={fixed_interval}")
 
     print("--------------------------------")
 
@@ -681,7 +741,8 @@ if __name__ == "__main__":
         review_cnt_per_day,
         cost_per_day,
         memorized_cnt_at_end,
+        cost_reached,
     ) in simulation_table:
         print(
-            f"| {title} | {review_cnt_per_day:.1f} | {cost_per_day:.1f} | {memorized_cnt_at_end:.0f} | {memorized_cnt_at_end / cost_per_day:.0f} |"
+            f"| {title} | {review_cnt_per_day:.1f} | {cost_per_day:.1f} | {memorized_cnt_at_end:.0f} | {memorized_cnt_at_end / cost_per_day:.0f} | {cost_reached:.0f} |"
         )
