@@ -42,7 +42,9 @@ R_EPS = 0.01
 DEVICE = (
     "cuda"
     if torch.cuda.is_available()
-    else "mps" if torch.backends.mps.is_available() else "cpu"
+    else "mps"
+    if torch.backends.mps.is_available()
+    else "cpu"
 )
 PARALLEL = 100
 
@@ -281,9 +283,11 @@ class SSPMMCSolver:
 
     def d2i_torch(self, d):
         return torch.clamp(
-            (torch.floor((d - self.d_min) / (self.d_max - self.d_min) * self.d_size)).to(torch.int),
+            (
+                torch.floor((d - self.d_min) / (self.d_max - self.d_min) * self.d_size)
+            ).to(torch.int),
             0,
-            self.d_size - 1
+            self.d_size - 1,
         )
 
     def r2i(self, r):
@@ -548,7 +552,9 @@ if __name__ == "__main__":
 
         def moving_average(data, window_size=365 // 20):
             weights = np.ones(window_size) / window_size
-            return np.apply_along_axis(lambda x: np.convolve(x, weights, mode="valid"), axis=-1, arr=data)
+            return np.apply_along_axis(
+                lambda x: np.convolve(x, weights, mode="valid"), axis=-1, arr=data
+            )
 
         return (
             moving_average(review_cnt_per_day),
@@ -568,7 +574,9 @@ if __name__ == "__main__":
                 review_cnt_per_day.mean(axis=-1).mean(axis=-1),
                 cost_per_day.mean(axis=-1).mean(axis=-1) / 60,
                 memorized_cnt_per_day[:, -1].mean(),
-                (memorized_cnt_per_day[:, -1] / (cost_per_day.mean(axis=-1) / 60)).mean(),
+                (
+                    memorized_cnt_per_day[:, -1] / (cost_per_day.mean(axis=-1) / 60)
+                ).mean(),
             )
         )
         fig = plt.figure(figsize=(16, 8.5))

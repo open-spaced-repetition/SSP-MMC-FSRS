@@ -11,16 +11,20 @@ FACTOR = 0.9 ** (1.0 / DECAY) - 1.0
 def power_forgetting_curve(t, s, s_max=math.inf):
     return np.where(s > s_max, 1, (1 + FACTOR * t / s) ** DECAY)
 
+
 def power_forgetting_curve_torch(t, s, s_max=math.inf):
     return torch.where(s > s_max, 1, (1 + FACTOR * t / s) ** DECAY)
+
 
 def next_interval(s, r):
     ivl = s / FACTOR * (r ** (1.0 / DECAY) - 1.0)
     return np.maximum(1, np.floor(ivl))
 
+
 def next_interval_torch(s, r):
     ivl = s / FACTOR * (r ** (1.0 / DECAY) - 1.0)
     return torch.maximum(torch.ones_like(ivl), torch.floor(ivl))
+
 
 DEFAULT_LEARN_COSTS = np.array([33.79, 24.3, 13.68, 6.5])
 DEFAULT_REVIEW_COSTS = np.array([23.0, 11.68, 7.33, 5.6])
@@ -66,9 +70,7 @@ def simulate(
     last_date = torch.zeros_like(due)
     ivl = torch.zeros_like(due)
     cost = torch.zeros_like(due)
-    ratings_np = np.random.choice(
-        [1, 2, 3, 4], deck_size, p=first_rating_prob
-    )
+    ratings_np = np.random.choice([1, 2, 3, 4], deck_size, p=first_rating_prob)
     rating = torch.tensor(ratings_np, dtype=torch.int32, device=device)
     review_cnt_per_day = torch.zeros((parallel, learn_span), device=device)
     learn_cnt_per_day = torch.zeros_like(review_cnt_per_day)
@@ -146,13 +148,19 @@ def simulate(
     for today in trange(learn_span, position=1, leave=False):
         has_learned = stability > 1e-10
         delta_t = torch.where(has_learned, today - last_date, delta_t)
-        retrievability = torch.where(~has_learned, retrievability, power_forgetting_curve_torch(delta_t, stability, s_max))
+        retrievability = torch.where(
+            ~has_learned,
+            retrievability,
+            power_forgetting_curve_torch(delta_t, stability, s_max),
+        )
         cost.zero_()
         need_review = due <= today
         rand = torch.rand(need_review.shape, device=device)
         forget = rand > retrievability
         rating = torch.where(need_review & forget, 1, rating)
-        ratings_ind_sample = torch.multinomial(weights_tensor, num_samples=due.numel(), replacement=True).view_as(due)
+        ratings_ind_sample = torch.multinomial(
+            weights_tensor, num_samples=due.numel(), replacement=True
+        ).view_as(due)
         ratings_sample = pass_ratings_tensor[ratings_ind_sample]
         rating = torch.where(need_review & ~forget, ratings_sample, rating)
         cost = torch.where(~need_review, cost, review_costs_tensor[rating - 1])
@@ -166,22 +174,38 @@ def simulate(
         last_date = torch.where(true_review, today, last_date)
         lapses = lapses + (true_review & forget)
         reps = reps + (true_review & ~forget)
-        stability = torch.where(true_review & forget, stability_after_failure(stability, retrievability, difficulty), stability)
-        stability = torch.where(true_review & forget, stability_short_term(stability), stability)
-        stability = torch.where(true_review & ~forget, stability_after_success(stability, retrievability, difficulty, rating), stability)
+        stability = torch.where(
+            true_review & forget,
+            stability_after_failure(stability, retrievability, difficulty),
+            stability,
+        )
+        stability = torch.where(
+            true_review & forget, stability_short_term(stability), stability
+        )
+        stability = torch.where(
+            true_review & ~forget,
+            stability_after_success(stability, retrievability, difficulty, rating),
+            stability,
+        )
         difficulty = torch.where(true_review, next_d(difficulty, rating), difficulty)
-        difficulty = torch.where(true_review & forget, torch.clamp(difficulty - (w[6] * forget_rating_offset), min=1, max=10), difficulty)
+        difficulty = torch.where(
+            true_review & forget,
+            torch.clamp(difficulty - (w[6] * forget_rating_offset), min=1, max=10),
+            difficulty,
+        )
 
         need_learn = stability == 1e-10
         cost = torch.where(~need_learn, cost, learn_costs_tensor[rating - 1])
         true_learn = (
-            need_learn 
+            need_learn
             & (torch.cumsum(cost, dim=-1) <= max_cost_perday)
             & (torch.cumsum(need_learn, dim=-1) <= learn_limit_perday)
         )
         last_date = torch.where(true_learn, today, last_date)
         stability = torch.where(true_learn, w_4_tensor[rating - 1], stability)
-        stability = torch.where(true_learn, stability_short_term(stability, init_rating=rating), stability)
+        stability = torch.where(
+            true_learn, stability_short_term(stability, init_rating=rating), stability
+        )
         difficulty = torch.where(true_learn, init_d_with_short_term(rating), difficulty)
         ivl = torch.where(true_review | true_learn, policy(stability, difficulty), ivl)
         due = torch.where(true_review | true_learn, today + ivl, due)
