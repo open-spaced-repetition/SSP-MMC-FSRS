@@ -551,9 +551,9 @@ if __name__ == "__main__":
             return np.apply_along_axis(lambda x: np.convolve(x, weights, mode="valid"), axis=-1, arr=data)
 
         return (
-            moving_average(review_cnt_per_day.cpu().numpy()),
-            moving_average(cost_per_day.cpu().numpy()),
-            moving_average(memorized_cnt_per_day.cpu().numpy()),
+            moving_average(review_cnt_per_day),
+            moving_average(cost_per_day),
+            moving_average(memorized_cnt_per_day),
         )
 
     simulation_table = []
@@ -568,6 +568,7 @@ if __name__ == "__main__":
                 review_cnt_per_day.mean(axis=-1).mean(axis=-1),
                 cost_per_day.mean(axis=-1).mean(axis=-1) / 60,
                 memorized_cnt_per_day[:, -1].mean(),
+                (memorized_cnt_per_day[:, -1] / (cost_per_day.mean(axis=-1) / 60)).mean(),
             )
         )
         fig = plt.figure(figsize=(16, 8.5))
@@ -716,7 +717,8 @@ if __name__ == "__main__":
         review_cnt_per_day,
         cost_per_day,
         memorized_cnt_at_end,
+        knowledge_per_minute,
     ) in simulation_table:
         print(
-            f"| {title} | {review_cnt_per_day:.1f} | {cost_per_day:.1f} | {memorized_cnt_at_end:.0f} | {memorized_cnt_at_end / cost_per_day:.0f} |"
+            f"| {title} | {review_cnt_per_day:.1f} | {cost_per_day:.1f} | {memorized_cnt_at_end:.0f} | {knowledge_per_minute:.0f} |"
         )
