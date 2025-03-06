@@ -10,8 +10,9 @@ from simulator import (
     DEFAULT_FIRST_SESSION_LENS,
     DEFAULT_FORGET_RATING_OFFSET,
     DEFAULT_FORGET_SESSION_LEN,
-    power_forgetting_curve,
+    next_interval_torch,
     next_interval,
+    power_forgetting_curve,
     simulate,
 )
 
@@ -43,6 +44,7 @@ DEVICE = (
     if torch.cuda.is_available()
     else "mps" if torch.backends.mps.is_available() else "cpu"
 )
+PARALLEL = 100
 
 w = [
     0.40255,
@@ -242,6 +244,31 @@ class SSPMMCSolver:
 
         return result
 
+    def s2i_torch(self, s):
+        result = torch.zeros_like(s, dtype=torch.int)
+        small_mask = s <= self.s_mid
+
+        # Handle small values (logarithmic scale)
+        result[small_mask] = torch.clamp(
+            torch.ceil(
+                (torch.log(s[small_mask]) - np.log(self.s_min)) / self.short_step
+            ).to(torch.int),
+            0,
+            len(self.s_state_small) - 1,
+        )
+
+        # Handle large values (linear scale)
+        result[~small_mask] = len(self.s_state_small) + torch.clamp(
+            torch.ceil(
+                (s[~small_mask] - self.s_state_small[-1] - self.long_step)
+                / self.long_step
+            ).to(torch.int),
+            0,
+            len(self.s_state_large) - 1,
+        )
+
+        return result
+
     def d2i(self, d):
         """Convert difficulty to index."""
         return np.clip(
@@ -250,6 +277,13 @@ class SSPMMCSolver:
             ),
             0,
             self.d_size - 1,
+        )
+
+    def d2i_torch(self, d):
+        return torch.clamp(
+            (torch.floor((d - self.d_min) / (self.d_max - self.d_min) * self.d_size)).to(torch.int),
+            0,
+            self.d_size - 1
         )
 
     def r2i(self, r):
@@ -443,6 +477,7 @@ if __name__ == "__main__":
     )
 
     cost_matrix, retention_matrix = solver.solve()
+    retention_matrix_tensor = torch.tensor(retention_matrix, device=DEVICE)
     init_stabilities = solver.init_s(np.arange(1, 5))
     init_difficulties = solver.init_d_with_short_term(np.arange(1, 5))
     init_cost = cost_matrix[solver.d2i(init_difficulties), solver.s2i(init_stabilities)]
@@ -483,42 +518,42 @@ if __name__ == "__main__":
     plt.close()
 
     def ssp_mmc_policy(s, d):
-        d_index = solver.d2i(d)
-        s_index = solver.s2i(s)
+        d_index = solver.d2i_torch(d)
+        s_index = solver.s2i_torch(s)
         # Handle array inputs by checking each element
         mask = (d_index >= solver.d_size) | (s_index >= solver.s_size - 1)
-        optimal_interval = np.zeros_like(s)
-        optimal_interval[~mask] = next_interval(
-            s[~mask], retention_matrix[d_index[~mask], s_index[~mask]]
+        optimal_interval = torch.zeros_like(s)
+        optimal_interval[~mask] = next_interval_torch(
+            s[~mask], retention_matrix_tensor[d_index[~mask], s_index[~mask]]
         )
         optimal_interval[mask] = np.inf
         return optimal_interval
 
     def simulate_policy(policy):
         (
-            _,
             review_cnt_per_day,
             _,
             memorized_cnt_per_day,
             cost_per_day,
-            _,
         ) = simulate(
+            parallel=PARALLEL,
             w=w,
             policy=policy,
+            device=DEVICE,
             deck_size=10000,
-            learn_span=365 * 10,
+            learn_span=365 * 1,
             loss_aversion=LOSS_AVERSION,
             s_max=S_MAX,
         )
 
         def moving_average(data, window_size=365 // 20):
             weights = np.ones(window_size) / window_size
-            return np.convolve(data, weights, mode="valid")
+            return np.apply_along_axis(lambda x: np.convolve(x, weights, mode="valid"), axis=-1, arr=data)
 
         return (
-            moving_average(review_cnt_per_day),
-            moving_average(cost_per_day),
-            moving_average(memorized_cnt_per_day),
+            moving_average(review_cnt_per_day.cpu().numpy()),
+            moving_average(cost_per_day.cpu().numpy()),
+            moving_average(memorized_cnt_per_day.cpu().numpy()),
         )
 
     simulation_table = []
@@ -530,23 +565,23 @@ if __name__ == "__main__":
         simulation_table.append(
             (
                 title,
-                review_cnt_per_day.mean(),
-                cost_per_day.mean() / 60,
-                memorized_cnt_per_day[-1],
+                review_cnt_per_day.mean(axis=-1).mean(axis=-1),
+                cost_per_day.mean(axis=-1).mean(axis=-1) / 60,
+                memorized_cnt_per_day[:, -1].mean(),
             )
         )
         fig = plt.figure(figsize=(16, 8.5))
         ax = fig.add_subplot(131)
-        ax.plot(review_cnt_per_day)
+        ax.plot(review_cnt_per_day[0])
         ax.set_title("Review Count")
         ax = fig.add_subplot(132)
-        ax.plot(cost_per_day, label=f"Total Cost: {cost_per_day.sum():.2f}")
+        ax.plot(cost_per_day[0], label=f"Total Cost: {cost_per_day[0].sum():.2f}")
         ax.set_title("Cost")
         ax.legend()
         ax = fig.add_subplot(133)
         ax.plot(
-            memorized_cnt_per_day,
-            label=f"Total Memorized: {memorized_cnt_per_day[-1]:.2f}",
+            memorized_cnt_per_day[0],
+            label=f"Total Memorized: {memorized_cnt_per_day[0][-1]:.2f}",
         )
         ax.set_title("Memorized Count")
         ax.legend()
@@ -652,7 +687,7 @@ if __name__ == "__main__":
         plt.tight_layout()
         plt.savefig(f"./plot/DR={r:.2f}.png")
         plt.close()
-        plot_simulation(lambda s, d: next_interval(s, r), f"DR={r:.2f}")
+        plot_simulation(lambda s, d: next_interval_torch(s, r), f"DR={r:.2f}")
 
     fig = plt.figure(figsize=(8, 8))
     ax = fig.add_subplot(111)
