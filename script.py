@@ -42,8 +42,6 @@ R_EPS = 0.01
 DEVICE = (
     "cuda"
     if torch.cuda.is_available()
-    else "mps"
-    if torch.backends.mps.is_available()
     else "cpu"
 )
 PARALLEL = 100
@@ -545,7 +543,7 @@ if __name__ == "__main__":
             policy=policy,
             device=DEVICE,
             deck_size=10000,
-            learn_span=365 * 1,
+            learn_span=365 * 10,
             loss_aversion=LOSS_AVERSION,
             s_max=S_MAX,
         )
