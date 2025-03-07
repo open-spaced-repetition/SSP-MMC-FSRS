@@ -39,11 +39,7 @@ D_EPS = 0.1
 R_MIN = 0.70
 R_MAX = 0.97
 R_EPS = 0.01
-DEVICE = (
-    "cuda"
-    if torch.cuda.is_available()
-    else "cpu"
-)
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 PARALLEL = 100
 
 w = [
