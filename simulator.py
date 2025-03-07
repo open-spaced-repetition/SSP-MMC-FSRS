@@ -1,5 +1,6 @@
 import numpy as np
 import math
+import torch
 from tqdm import trange
 
 
@@ -11,26 +12,19 @@ def power_forgetting_curve(t, s, s_max=math.inf):
     return np.where(s > s_max, 1, (1 + FACTOR * t / s) ** DECAY)
 
 
+def power_forgetting_curve_torch(t, s, s_max=math.inf):
+    return torch.where(s > s_max, 1, (1 + FACTOR * t / s) ** DECAY)
+
+
 def next_interval(s, r):
     ivl = s / FACTOR * (r ** (1.0 / DECAY) - 1.0)
     return np.maximum(1, np.floor(ivl))
 
 
-columns = [
-    "difficulty",
-    "stability",
-    "retrievability",
-    "delta_t",
-    "reps",
-    "lapses",
-    "last_date",
-    "due",
-    "ivl",
-    "cost",
-    "rand",
-    "rating",
-]
-col = {key: i for i, key in enumerate(columns)}
+def next_interval_torch(s, r):
+    ivl = s / FACTOR * (r ** (1.0 / DECAY) - 1.0)
+    return torch.maximum(torch.ones_like(ivl), torch.floor(ivl))
+
 
 DEFAULT_LEARN_COSTS = np.array([33.79, 24.3, 13.68, 6.5])
 DEFAULT_REVIEW_COSTS = np.array([23.0, 11.68, 7.33, 5.6])
@@ -42,9 +36,12 @@ DEFAULT_FORGET_RATING_OFFSET = -0.28
 DEFAULT_FORGET_SESSION_LEN = 1.05
 
 
+@torch.inference_mode()
 def simulate(
+    parallel,
     w,
     policy,
+    device,
     deck_size=10000,
     learn_span=365,
     max_cost_perday=86400 / 4,
@@ -62,68 +59,79 @@ def simulate(
     seed=42,
     s_max=math.inf,
 ):
-    np.random.seed(seed)
-    card_table = np.zeros((len(columns), deck_size))
-    card_table[col["due"]] = learn_span
-    card_table[col["difficulty"]] = 1e-10
-    card_table[col["stability"]] = 1e-10
-    card_table[col["rating"]] = np.random.choice(
-        [1, 2, 3, 4], deck_size, p=first_rating_prob
-    )
-    card_table[col["rating"]] = card_table[col["rating"]].astype(int)
-
-    revlogs = {}
-    review_cnt_per_day = np.zeros(learn_span)
-    learn_cnt_per_day = np.zeros(learn_span)
-    memorized_cnt_per_day = np.zeros(learn_span)
-    cost_per_day = np.zeros(learn_span)
+    torch.manual_seed(seed)
+    due = torch.full((parallel, deck_size), learn_span, device=device)
+    difficulty = torch.full_like(due, 1e-10)
+    stability = torch.full_like(due, 1e-10, dtype=torch.float64)
+    retrievability = torch.full_like(due, 0)
+    delta_t = torch.zeros_like(due)
+    reps = torch.zeros_like(due)
+    lapses = torch.zeros_like(due)
+    last_date = torch.zeros_like(due)
+    ivl = torch.zeros_like(due)
+    cost = torch.zeros_like(due)
+    ratings_np = np.random.choice([1, 2, 3, 4], deck_size, p=first_rating_prob)
+    rating = torch.tensor(ratings_np, dtype=torch.int32, device=device)
+    review_cnt_per_day = torch.zeros((parallel, learn_span), device=device)
+    learn_cnt_per_day = torch.zeros_like(review_cnt_per_day)
+    memorized_cnt_per_day = torch.zeros_like(review_cnt_per_day)
+    cost_per_day = torch.zeros_like(review_cnt_per_day)
+    pass_ratings_tensor = torch.tensor([2, 3, 4], device=device)
+    weights_tensor = torch.tensor(review_rating_prob, device=device)
+    review_costs_tensor = torch.tensor(review_costs, device=device)
+    learn_costs_tensor = torch.tensor(learn_costs, device=device)
+    w_4_tensor = torch.tensor(w[:4], device=device)
+    first_rating_offset_tensor = torch.tensor(first_rating_offset, device=device)
+    first_session_len_tensor = torch.tensor(first_session_len, device=device)
+    forget_rating_offset_tensor = torch.tensor(forget_rating_offset, device=device)
+    forget_session_len_tensor = torch.tensor(forget_session_len, device=device)
 
     def stability_after_success(s, r, d, rating):
-        hard_penalty = np.where(rating == 2, w[15], 1)
-        easy_bonus = np.where(rating == 4, w[16], 1)
-        return np.maximum(
-            0.01,
+        hard_penalty = torch.where(rating == 2, w[15], 1)
+        easy_bonus = torch.where(rating == 4, w[16], 1)
+        return torch.maximum(
+            torch.tensor(0.01, device=s.device),
             s
             * (
                 1
                 + np.exp(w[8])
                 * (11 - d)
-                * np.power(s, -w[9])
-                * (np.exp((1 - r) * w[10]) - 1)
+                * torch.pow(s, -w[9])
+                * (torch.exp((1 - r) * w[10]) - 1)
                 * hard_penalty
                 * easy_bonus
             ),
         )
 
     def stability_after_failure(s, r, d):
-        return np.maximum(
-            0.01,
-            np.minimum(
+        return torch.maximum(
+            torch.tensor(0.01, device=s.device),
+            torch.minimum(
                 w[11]
-                * np.power(d, -w[12])
-                * (np.power(s + 1, w[13]) - 1)
-                * np.exp((1 - r) * w[14]),
+                * torch.pow(d, -w[12])
+                * (torch.pow(s + 1, w[13]) - 1)
+                * torch.exp((1 - r) * w[14]),
                 s / np.exp(w[17] * w[18]),
             ),
         )
 
     def stability_short_term(s, init_rating=None):
         if init_rating is not None:
-            rating_offset = np.choose(init_rating - 1, first_rating_offset)
-            session_len = np.choose(init_rating - 1, first_session_len)
+            rating_offset = first_rating_offset_tensor[init_rating - 1]
+            session_len = first_session_len_tensor[init_rating - 1]
         else:
-            rating_offset = forget_rating_offset
-            session_len = forget_session_len
-        new_s = s * np.exp(w[17] * (rating_offset + session_len * w[18]))
+            rating_offset = forget_rating_offset_tensor
+            session_len = forget_session_len_tensor
+        new_s = s * torch.exp(w[17] * (rating_offset + session_len * w[18]))
         return new_s
 
     def init_d(rating):
-        return w[4] - np.exp(w[5] * (rating - 1)) + 1
+        return w[4] - torch.exp(w[5] * (rating - 1)) + 1
 
     def init_d_with_short_term(rating):
-        rating_offset = np.choose(rating - 1, first_rating_offset)
+        rating_offset = first_rating_offset_tensor[rating - 1]
         new_d = init_d(rating) - w[6] * rating_offset
-        return np.clip(new_d, 1, 10)
+        return torch.clamp(new_d, min=1, max=10)
 
     def linear_damping(delta_d, old_d):
         return delta_d * (10 - old_d) / 9
@@ -131,115 +139,85 @@ def simulate(
     def next_d(d, rating):
         delta_d = -w[6] * (rating - 3)
         new_d = d + linear_damping(delta_d, d)
-        new_d = mean_reversion(init_d(4), new_d)
-        return np.clip(new_d, 1, 10)
+        new_d = mean_reversion(init_d(torch.full_like(d, 4)), new_d)
+        return torch.clamp(new_d, min=1, max=10)
 
     def mean_reversion(init, current):
         return w[7] * init + (1 - w[7]) * current
 
     for today in trange(learn_span, position=1, leave=False):
-        has_learned = card_table[col["stability"]] > 1e-10
-        card_table[col["delta_t"]][has_learned] = (
-            today - card_table[col["last_date"]][has_learned]
+        has_learned = stability > 1e-10
+        delta_t = torch.where(has_learned, today - last_date, delta_t)
+        retrievability = torch.where(
+            ~has_learned,
+            retrievability,
+            power_forgetting_curve_torch(delta_t, stability, s_max),
         )
-        card_table[col["retrievability"]][has_learned] = power_forgetting_curve(
-            card_table[col["delta_t"]][has_learned],
-            card_table[col["stability"]][has_learned],
-            s_max,
-        )
-        card_table[col["cost"]] = 0
-        need_review = card_table[col["due"]] <= today
-        card_table[col["rand"]][need_review] = np.random.rand(np.sum(need_review))
-        forget = card_table[col["rand"]] > card_table[col["retrievability"]]
-        card_table[col["rating"]][need_review & forget] = 1
-        card_table[col["rating"]][need_review & ~forget] = np.random.choice(
-            [2, 3, 4], np.sum(need_review & ~forget), p=review_rating_prob
-        )
-        card_table[col["cost"]][need_review] = np.choose(
-            card_table[col["rating"]][need_review].astype(int) - 1,
-            review_costs,
-        )
-        card_table[col["cost"]][need_review & forget] *= loss_aversion
+        cost.zero_()
+        need_review = due <= today
+        rand = torch.rand(need_review.shape, device=device)
+        forget = rand > retrievability
+        rating = torch.where(need_review & forget, 1, rating)
+        ratings_ind_sample = torch.multinomial(
+            weights_tensor, num_samples=due.numel(), replacement=True
+        ).view_as(due)
+        ratings_sample = pass_ratings_tensor[ratings_ind_sample]
+        rating = torch.where(need_review & ~forget, ratings_sample, rating)
+        cost = torch.where(~need_review, cost, review_costs_tensor[rating - 1])
+        cost = cost * torch.where(need_review & forget, loss_aversion, 1)
+
         true_review = (
             need_review
-            & (np.cumsum(card_table[col["cost"]]) <= max_cost_perday)
-            & (np.cumsum(need_review) <= review_limit_perday)
+            & (torch.cumsum(cost, dim=-1) <= max_cost_perday)
+            & (torch.cumsum(need_review, dim=-1) <= review_limit_perday)
         )
-        card_table[col["last_date"]][true_review] = today
-
-        card_table[col["lapses"]][true_review & forget] += 1
-        card_table[col["reps"]][true_review & ~forget] += 1
-
-        card_table[col["stability"]][true_review & forget] = stability_after_failure(
-            card_table[col["stability"]][true_review & forget],
-            card_table[col["retrievability"]][true_review & forget],
-            card_table[col["difficulty"]][true_review & forget],
+        last_date = torch.where(true_review, today, last_date)
+        lapses = lapses + (true_review & forget)
+        reps = reps + (true_review & ~forget)
+        stability = torch.where(
+            true_review & forget,
+            stability_after_failure(stability, retrievability, difficulty),
+            stability,
         )
-        card_table[col["stability"]][true_review & forget] = stability_short_term(
-            card_table[col["stability"]][true_review & forget]
+        stability = torch.where(
+            true_review & forget, stability_short_term(stability), stability
         )
-        card_table[col["stability"]][true_review & ~forget] = stability_after_success(
-            card_table[col["stability"]][true_review & ~forget],
-            card_table[col["retrievability"]][true_review & ~forget],
-            card_table[col["difficulty"]][true_review & ~forget],
-            card_table[col["rating"]][true_review & ~forget],
+        stability = torch.where(
+            true_review & ~forget,
+            stability_after_success(stability, retrievability, difficulty, rating),
+            stability,
         )
-
-        card_table[col["difficulty"]][true_review] = next_d(
-            card_table[col["difficulty"]][true_review],
-            card_table[col["rating"]][true_review],
-        )
-        card_table[col["difficulty"]][true_review & forget] = np.clip(
-            card_table[col["difficulty"]][true_review & forget]
-            - (w[6] * forget_rating_offset),
-            1,
-            10,
+        difficulty = torch.where(true_review, next_d(difficulty, rating), difficulty)
+        difficulty = torch.where(
+            true_review & forget,
+            torch.clamp(difficulty - (w[6] * forget_rating_offset), min=1, max=10),
+            difficulty,
         )
 
-        need_learn = card_table[col["stability"]] == 1e-10
-        card_table[col["cost"]][need_learn] = np.choose(
-            card_table[col["rating"]][need_learn].astype(int) - 1,
-            learn_costs,
-        )
+        need_learn = stability == 1e-10
+        cost = torch.where(~need_learn, cost, learn_costs_tensor[rating - 1])
         true_learn = (
             need_learn
-            & (np.cumsum(card_table[col["cost"]]) <= max_cost_perday)
-            & (np.cumsum(need_learn) <= learn_limit_perday)
+            & (torch.cumsum(cost, dim=-1) <= max_cost_perday)
+            & (torch.cumsum(need_learn, dim=-1) <= learn_limit_perday)
         )
-        card_table[col["last_date"]][true_learn] = today
-        card_table[col["stability"]][true_learn] = np.choose(
-            card_table[col["rating"]][true_learn].astype(int) - 1, w[:4]
+        last_date = torch.where(true_learn, today, last_date)
+        stability = torch.where(true_learn, w_4_tensor[rating - 1], stability)
+        stability = torch.where(
+            true_learn, stability_short_term(stability, init_rating=rating), stability
         )
-        card_table[col["stability"]][true_learn] = stability_short_term(
-            card_table[col["stability"]][true_learn],
-            init_rating=card_table[col["rating"]][true_learn].astype(int),
-        )
-        card_table[col["difficulty"]][true_learn] = init_d_with_short_term(
-            card_table[col["rating"]][true_learn].astype(int)
-        )
+        difficulty = torch.where(true_learn, init_d_with_short_term(rating), difficulty)
+        ivl = torch.where(true_review | true_learn, policy(stability, difficulty), ivl)
+        due = torch.where(true_review | true_learn, today + ivl, due)
 
-        card_table[col["ivl"]][true_review | true_learn] = policy(
-            card_table[col["stability"]][true_review | true_learn],
-            card_table[col["difficulty"]][true_review | true_learn],
-        )
-        card_table[col["due"]][true_review | true_learn] = (
-            today + card_table[col["ivl"]][true_review | true_learn]
-        )
+        review_cnt_per_day[:, today] = true_review.sum(dim=-1)
+        learn_cnt_per_day[:, today] = true_learn.sum(dim=-1)
+        memorized_cnt_per_day[:, today] = retrievability.sum(dim=-1)
+        cost_per_day[:, today] = (cost * (true_review | true_learn)).sum(dim=-1)
 
-        revlogs[today] = {
-            "card_id": np.where(true_review | true_learn)[0],
-            "rating": card_table[col["rating"]][true_review | true_learn],
-        }
-
-        review_cnt_per_day[today] = np.sum(true_review)
-        learn_cnt_per_day[today] = np.sum(true_learn)
-        memorized_cnt_per_day[today] = card_table[col["retrievability"]].sum()
-        cost_per_day[today] = card_table[col["cost"]][true_review | true_learn].sum()
     return (
-        card_table,
-        review_cnt_per_day,
-        learn_cnt_per_day,
-        memorized_cnt_per_day,
-        cost_per_day,
-        revlogs,
+        review_cnt_per_day.cpu().numpy(),
+        learn_cnt_per_day.cpu().numpy(),
+        memorized_cnt_per_day.cpu().numpy(),
+        cost_per_day.cpu().numpy(),
     )
