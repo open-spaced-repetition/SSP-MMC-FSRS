@@ -60,6 +60,7 @@ def simulate(
     s_max=math.inf,
 ):
     torch.manual_seed(seed)
+    np.random.seed(seed)
     due = torch.full((parallel, deck_size), learn_span, device=device)
     difficulty = torch.full_like(due, 1e-10)
     stability = torch.full_like(due, 1e-10, dtype=torch.float64)

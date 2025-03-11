@@ -8,7 +8,7 @@ SSP-MMC-FSRS is an extended verson of [SSP-MMC](https://github.com/maimemo/SSP-M
 ## Results
 
 - Scheduling Policy: how the intervals are calculated. When SSP-MMC is used, the intervals are chosen so that the "cost" (in minutes of studying) is minimized. 
-When a fixed value of desired retention (DR) is used, the intervals correspond to the desired probability of recall. IVL means that constant interval lengths - in days - are used.
+When a fixed value of desired retention (DR) is used, the intervals correspond to the desired probability of recall. IVL means that constant interval lengths - in days - are used. To account for the core hypothesis of SSP-MMC, that cards will be remembered forever once the stability exceeds a certain threshold, for both DR and IVL we allow the final interval to be shortened in order to reach the desired stability threshold on a "Good" review with the highest probability possible, and we allow cards that have reached the target stability threshold to never be scheduled again.
 - Average number of reviews per day: the average number of simulated reviews of flashcards per one day of the simulated review history. Lower is better.
 - Average number of minutes per day: same as above, but minutes of studying are used instead. Lower is better.
 - Total knowledge at the end: the sum of probabilities of recall of all reviewed cards by the end of the simulation. It cannot be greater than the deck size. Higher is better.
@@ -22,20 +22,20 @@ The best result is highlighted in **bold**. The worst result is highlighted in $
 
 | Schedulling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute |
 | --- | --- | --- | --- | --- |
-| SSP-MMC | 60.7 | 16.5 | 3381 | 205 |
-| DR=0.70 | **30.9** | 14.6 | $${\color{red}3055}$$ | 209 |
-| DR=0.73 | 32.8 | **14.5** | 3106 | 215 |
-| DR=0.76 | 36.3 | 14.7 | 3161 | 215 |
-| DR=0.79 | 39.7 | 14.9 | 3204 | 214 |
-| DR=0.82 | 43.8 | 15.1 | 3260 | **216** |
-| DR=0.85 | 48.8 | 15.3 | 3308 | **216** |
-| DR=0.88 | 56.6 | 16.1 | 3356 | 209 |
-| DR=0.91 | 70.2 | 17.5 | 3405 | 195 |
-| DR=0.94 | 93.7 | 20.3 | 3452 | 170 |
-| DR=0.97 | 162.3 | 29.1 | 3501 | 120 |
-| IVL=3 | $${\color{red}603.3}$$ | $${\color{red}89.2}$$ | **3538** | $${\color{red}40}$$ |
-| IVL=7 | 255.7 | 44.9 | 3503 | 78 |
-| IVL=30 | 55.8 | 21.3 | 3119 | 146 |
+| SSP-MMC | 60.8 | 16.5 | 3381 | 205 |
+| DR=0.70 | **30.7** | **14.5** | $${\color{red}3055}$$ | 211 |
+| DR=0.73 | 33.1 | 14.6 | 3107 | 213 |
+| DR=0.76 | 36.3 | 14.7 | 3163 | 215 |
+| DR=0.79 | 39.5 | 14.8 | 3203 | **216** |
+| DR=0.82 | 44.0 | 15.2 | 3261 | 215 |
+| DR=0.85 | 49.6 | 15.6 | 3308 | 213 |
+| DR=0.88 | 57.4 | 16.3 | 3357 | 206 |
+| DR=0.91 | 70.8 | 17.6 | 3405 | 193 |
+| DR=0.94 | 94.3 | 20.4 | 3452 | 169 |
+| DR=0.97 | 161.8 | 29.0 | 3501 | 121 |
+| IVL=3 | $${\color{red}603.3}$$ | $${\color{red}89.4}$$ | **3538** | $${\color{red}40}$$ |
+| IVL=7 | 255.7 | 44.9 | 3504 | 78 |
+| IVL=30 | 55.8 | 21.6 | 3105 | 144 |
 
 
 
@@ -43,20 +43,20 @@ The best result is highlighted in **bold**. The worst result is highlighted in $
 
 | Schedulling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute |
 | --- | --- | --- | --- | --- |
-| SSP-MMC | 45.2 | **11.3** | 9818 | **870** |
-| DR=0.70 | **29.6** | 12.0 | 8686 | 724 |
-| DR=0.73 | 31.4 | 11.9 | 8904 | 748 |
-| DR=0.76 | 33.4 | 11.8 | 9017 | 766 |
-| DR=0.79 | 35.5 | 11.6 | 9318 | 806 |
-| DR=0.82 | 38.5 | 11.5 | 9487 | 822 |
-| DR=0.85 | 42.1 | 11.5 | 9642 | 838 |
-| DR=0.88 | 47.2 | 11.6 | 9771 | 840 |
-| DR=0.91 | 56.1 | 12.3 | 9869 | 804 |
-| DR=0.94 | 71.5 | 13.7 | 9939 | 725 |
-| DR=0.97 | 117.9 | 19.3 | 9984 | 518 |
-| IVL=3 | $${\color{red}2383.5}$$ | $${\color{red}322.8}$$ | $${\color{red}8091}$$ | $${\color{red}25}$$ |
-| IVL=7 | 1233.9 | 170.2 | **9999** | 59 |
-| IVL=30 | 286.9 | 48.2 | 9970 | 207 |
+| SSP-MMC | 45.2 | **11.3** | 9817 | **868** |
+| DR=0.70 | **31.0** | 12.3 | $${\color{red}9257}$$ | 753 |
+| DR=0.73 | 32.6 | 12.1 | 9383 | 775 |
+| DR=0.76 | 34.4 | 11.8 | 9505 | 803 |
+| DR=0.79 | 36.3 | 11.6 | 9610 | 828 |
+| DR=0.82 | 38.6 | 11.4 | 9702 | 852 |
+| DR=0.85 | 42.0 | **11.3** | 9782 | 863 |
+| DR=0.88 | 46.3 | 11.4 | 9852 | 865 |
+| DR=0.91 | 53.6 | 11.8 | 9910 | 841 |
+| DR=0.94 | 67.4 | 13.1 | 9955 | 762 |
+| DR=0.97 | 105.6 | 17.6 | 9987 | 568 |
+| IVL=3 | $${\color{red}1293.8}$$ | $${\color{red}177.3}$$ | **10000** | $${\color{red}56}$$ |
+| IVL=7 | 550.5 | 78.5 | 9999 | 127 |
+| IVL=30 | 152.2 | 30.3 | 9969 | 329 |
 
 SSP-MMC performs better over longer periods of time.
 
