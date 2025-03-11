@@ -566,7 +566,7 @@ if __name__ == "__main__":
             policy=policy,
             device=DEVICE,
             deck_size=10000,
-            learn_span=365 * 1,
+            learn_span=365 * 10,
             loss_aversion=LOSS_AVERSION,
             s_max=S_MAX,
         )
