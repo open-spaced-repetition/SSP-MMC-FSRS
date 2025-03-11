@@ -137,6 +137,16 @@ def next_interval_ceil(s, r):
     ivl = s / FACTOR * (r ** (1.0 / DECAY) - 1.0)
     return torch.maximum(torch.tensor(1, device=s.device), torch.ceil(ivl))
 
+def s_max_aware_next_interval(s, d, dr):
+    int_base = next_interval_torch(s, dr)
+    int_req = next_interval_ceil(s, max_r_to_reach_next_stability(s, S_MAX + 1e-3, d, torch.full_like(s, 3)))
+    return torch.where(s > S_MAX, 1e9, torch.minimum(int_base, int_req))
+
+def s_max_aware_fixed_interval(s, d, fixed_interval):
+    int_base = fixed_interval
+    int_req = next_interval_ceil(s, max_r_to_reach_next_stability(s, S_MAX + 1e-3, d, torch.full_like(s, 3)))
+    return torch.where(s > S_MAX, 1e9, torch.minimum(torch.tensor(int_base, device=s.device), int_req))
+
 class SSPMMCSolver:
     def __init__(
         self,
@@ -556,7 +566,7 @@ if __name__ == "__main__":
             policy=policy,
             device=DEVICE,
             deck_size=10000,
-            learn_span=365 * 10,
+            learn_span=365 * 1,
             loss_aversion=LOSS_AVERSION,
             s_max=S_MAX,
         )
@@ -707,13 +717,6 @@ if __name__ == "__main__":
         plt.tight_layout()
         plt.savefig(f"./plot/DR={r:.2f}.png")
         plt.close()
-
-        def s_max_aware_next_interval(s, d, r):
-            # Finds the minimum interval required to reach a stability of at least S_MAX if the rating is at least 3.
-            # This new interval must satisfy r >= DR
-            int_base = next_interval_torch(s, r)
-            int_req = next_interval_ceil(s, max_r_to_reach_next_stability(s, S_MAX + 1e-3, d, torch.full_like(s, 3)))
-            return torch.where(s > S_MAX, 1e9, torch.minimum(int_base, int_req))
         plot_simulation(lambda s, d: s_max_aware_next_interval(s, d, r), f"DR={r:.2f}")
 
     fig = plt.figure(figsize=(8, 8))
@@ -730,15 +733,7 @@ if __name__ == "__main__":
     plt.close()
 
     for fixed_interval in [3, 7, 30]:
-        def s_max_aware_fixed_interval(s, d):
-            # Finds the minimum interval required to reach a stability of at least S_MAX if the rating is at least 3.
-            # This new interval must satisfy r >= DR
-            int_base = fixed_interval
-            int_req = next_interval_ceil(s, max_r_to_reach_next_stability(s, S_MAX + 1e-3, d, torch.full_like(s, 3)))
-            return torch.where(s > S_MAX, 1e9, torch.minimum(torch.tensor(int_base, device=s.device), int_req))
-            # return np.where(s > S_MAX, 1e9, int_base)
-            # return int_base
-        plot_simulation(lambda s, d: s_max_aware_fixed_interval(s, d), f"IVL={fixed_interval}")
+        plot_simulation(lambda s, d: s_max_aware_fixed_interval(s, d, fixed_interval), f"IVL={fixed_interval}")
 
     print("--------------------------------")
 
