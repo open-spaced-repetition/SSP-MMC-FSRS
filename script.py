@@ -121,6 +121,7 @@ def bellman_solver(
     print(f"Done. it: {it}, cost diff: {cost_diff}")
     return state.cpu().numpy(), optimal_action.cpu().numpy()
 
+
 def max_r_to_reach_next_stability(s, s_next, d, rating):
     hard_penalty = torch.where(rating == 2, w[15], 1)
     easy_bonus = torch.where(rating == 4, w[16], 1)
@@ -131,21 +132,34 @@ def max_r_to_reach_next_stability(s, s_next, d, rating):
     # => f(r) = (s_next / s - 1) / c
     # => e^((1 - r) * w[10]) - 1 = (s_next / s - 1) / c
     # => 1 - r = log(((s_next / s - 1) / c + 1)) / w[10]
-    return torch.maximum(torch.tensor(0.01, device=s.device), 1 - torch.log(((s_next / s - 1) / c + 1)) / w[10])
+    return torch.maximum(
+        torch.tensor(0.01, device=s.device),
+        1 - torch.log(((s_next / s - 1) / c + 1)) / w[10],
+    )
+
 
 def next_interval_ceil(s, r):
     ivl = s / FACTOR * (r ** (1.0 / DECAY) - 1.0)
     return torch.maximum(torch.tensor(1, device=s.device), torch.ceil(ivl))
 
+
 def s_max_aware_next_interval(s, d, dr):
     int_base = next_interval_torch(s, dr)
-    int_req = next_interval_ceil(s, max_r_to_reach_next_stability(s, S_MAX + 1e-3, d, torch.full_like(s, 3)))
+    int_req = next_interval_ceil(
+        s, max_r_to_reach_next_stability(s, S_MAX + 1e-3, d, torch.full_like(s, 3))
+    )
     return torch.where(s > S_MAX, 1e9, torch.minimum(int_base, int_req))
+
 
 def s_max_aware_fixed_interval(s, d, fixed_interval):
     int_base = fixed_interval
-    int_req = next_interval_ceil(s, max_r_to_reach_next_stability(s, S_MAX + 1e-3, d, torch.full_like(s, 3)))
-    return torch.where(s > S_MAX, 1e9, torch.minimum(torch.tensor(int_base, device=s.device), int_req))
+    int_req = next_interval_ceil(
+        s, max_r_to_reach_next_stability(s, S_MAX + 1e-3, d, torch.full_like(s, 3))
+    )
+    return torch.where(
+        s > S_MAX, 1e9, torch.minimum(torch.tensor(int_base, device=s.device), int_req)
+    )
+
 
 class SSPMMCSolver:
     def __init__(
@@ -733,7 +747,10 @@ if __name__ == "__main__":
     plt.close()
 
     for fixed_interval in [3, 7, 30]:
-        plot_simulation(lambda s, d: s_max_aware_fixed_interval(s, d, fixed_interval), f"IVL={fixed_interval}")
+        plot_simulation(
+            lambda s, d: s_max_aware_fixed_interval(s, d, fixed_interval),
+            f"IVL={fixed_interval}",
+        )
 
     print("--------------------------------")
 
