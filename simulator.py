@@ -1,4 +1,3 @@
-import random
 import numpy as np
 import math
 import torch
@@ -11,7 +10,6 @@ FACTOR = 0.9 ** (1.0 / DECAY) - 1.0
 
 def power_forgetting_curve(t, s, s_max=math.inf):
     return np.where(s > s_max, 1, (1 + FACTOR * t / s) ** DECAY)
-    # return (1 + FACTOR * t / s) ** DECAY
 
 
 def power_forgetting_curve_torch(t, s, s_max=math.inf):
