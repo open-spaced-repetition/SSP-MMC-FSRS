@@ -4,25 +4,25 @@ import torch
 from tqdm import trange
 
 
-DECAY = -0.5
-FACTOR = 0.9 ** (1.0 / DECAY) - 1.0
+def power_forgetting_curve(t, s, decay, s_max=math.inf):
+    factor = 0.9 ** (1.0 / decay) - 1.0
+    return np.where(s > s_max, 1, (1 + factor * t / s) ** decay)
 
 
-def power_forgetting_curve(t, s, s_max=math.inf):
-    return np.where(s > s_max, 1, (1 + FACTOR * t / s) ** DECAY)
+def power_forgetting_curve_torch(t, s, decay, s_max=math.inf):
+    factor = 0.9 ** (1.0 / decay) - 1.0
+    return torch.where(s > s_max, 1, (1 + factor * t / s) ** decay)
 
 
-def power_forgetting_curve_torch(t, s, s_max=math.inf):
-    return torch.where(s > s_max, 1, (1 + FACTOR * t / s) ** DECAY)
-
-
-def next_interval(s, r):
-    ivl = s / FACTOR * (r ** (1.0 / DECAY) - 1.0)
+def next_interval(s, r, decay):
+    factor = 0.9 ** (1.0 / decay) - 1.0
+    ivl = s / factor * (r ** (1.0 / decay) - 1.0)
     return np.maximum(1, np.floor(ivl))
 
 
-def next_interval_torch(s, r):
-    ivl = s / FACTOR * (r ** (1.0 / DECAY) - 1.0)
+def next_interval_torch(s, r, decay):
+    factor = 0.9 ** (1.0 / decay) - 1.0
+    ivl = s / factor * (r ** (1.0 / decay) - 1.0)
     return torch.maximum(torch.ones_like(ivl), torch.floor(ivl))
 
 
@@ -55,7 +55,6 @@ def simulate(
     first_session_len=DEFAULT_FIRST_SESSION_LENS,
     forget_rating_offset=DEFAULT_FORGET_RATING_OFFSET,
     forget_session_len=DEFAULT_FORGET_SESSION_LEN,
-    loss_aversion=2.5,
     seed=42,
     s_max=math.inf,
 ):
@@ -83,9 +82,6 @@ def simulate(
     learn_costs_tensor = torch.tensor(learn_costs, device=device)
     w_4_tensor = torch.tensor(w[:4], device=device)
     first_rating_offset_tensor = torch.tensor(first_rating_offset, device=device)
-    first_session_len_tensor = torch.tensor(first_session_len, device=device)
-    forget_rating_offset_tensor = torch.tensor(forget_rating_offset, device=device)
-    forget_session_len_tensor = torch.tensor(forget_session_len, device=device)
 
     def stability_after_success(s, r, d, rating):
         hard_penalty = torch.where(rating == 2, w[15], 1)
@@ -116,14 +112,9 @@ def simulate(
             ),
         )
 
-    def stability_short_term(s, init_rating=None):
-        if init_rating is not None:
-            rating_offset = first_rating_offset_tensor[init_rating - 1]
-            session_len = first_session_len_tensor[init_rating - 1]
-        else:
-            rating_offset = forget_rating_offset_tensor
-            session_len = forget_session_len_tensor
-        new_s = s * torch.exp(w[17] * (rating_offset + session_len * w[18]))
+    def stability_short_term(s):
+        rating = 3
+        new_s = s * np.exp(w[17] * (rating - 3 + w[18])) * torch.pow(s, -w[19])
         return new_s
 
     def init_d(rating):
@@ -152,7 +143,7 @@ def simulate(
         retrievability = torch.where(
             ~has_learned,
             retrievability,
-            power_forgetting_curve_torch(delta_t, stability, s_max),
+            power_forgetting_curve_torch(delta_t, stability, -w[20], s_max),
         )
         cost.zero_()
         need_review = due <= today
@@ -165,7 +156,6 @@ def simulate(
         ratings_sample = pass_ratings_tensor[ratings_ind_sample]
         rating = torch.where(need_review & ~forget, ratings_sample, rating)
         cost = torch.where(~need_review, cost, review_costs_tensor[rating - 1])
-        cost = cost * torch.where(need_review & forget, loss_aversion, 1)
 
         true_review = (
             need_review
@@ -204,9 +194,6 @@ def simulate(
         )
         last_date = torch.where(true_learn, today, last_date)
         stability = torch.where(true_learn, w_4_tensor[rating - 1], stability)
-        stability = torch.where(
-            true_learn, stability_short_term(stability, init_rating=rating), stability
-        )
         difficulty = torch.where(true_learn, init_d_with_short_term(rating), difficulty)
         ivl = torch.where(true_review | true_learn, policy(stability, difficulty), ivl)
         due = torch.where(true_review | true_learn, today + ivl, due)
