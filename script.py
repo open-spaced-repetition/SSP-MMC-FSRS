@@ -3,8 +3,6 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 from simulator import (
-    DECAY,
-    FACTOR,
     DEFAULT_REVIEW_COSTS,
     DEFAULT_FIRST_RATING_PROB,
     DEFAULT_REVIEW_RATING_PROB,
@@ -27,7 +25,6 @@ first_rating_offsets = DEFAULT_FIRST_RATING_OFFSETS
 first_session_lens = DEFAULT_FIRST_SESSION_LENS
 forget_rating_offset = DEFAULT_FORGET_RATING_OFFSET
 forget_session_len = DEFAULT_FORGET_SESSION_LEN
-LOSS_AVERSION = 2.5
 
 S_MIN = 0.1
 S_MAX = 365 * 3
@@ -45,25 +42,27 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 PARALLEL = 100
 
 w = [
-    0.40255,
-    1.18385,
-    3.173,
-    15.69105,
-    7.1949,
-    0.5345,
-    1.4604,
-    0.0046,
-    1.54575,
-    0.1192,
-    1.01925,
-    1.9395,
-    0.11,
-    0.29605,
-    2.2698,
-    0.2315,
-    2.9898,
-    0.51655,
-    0.6621,
+    0.2172,
+    1.1771,
+    3.2602,
+    16.1507,
+    7.0114,
+    0.57,
+    2.0966,
+    0.0069,
+    1.5261,
+    0.112,
+    1.0178,
+    1.849,
+    0.1133,
+    0.3127,
+    2.2934,
+    0.2191,
+    3.0004,
+    0.7536,
+    0.3332,
+    0.1437,
+    0.2,
 ]
 
 
@@ -138,23 +137,28 @@ def max_r_to_reach_next_stability(s, s_next, d, rating):
     )
 
 
-def next_interval_ceil(s, r):
-    ivl = s / FACTOR * (r ** (1.0 / DECAY) - 1.0)
+def next_interval_ceil(s, r, decay):
+    factor = 0.9 ** (1.0 / decay) - 1.0
+    ivl = s / factor * (r ** (1.0 / decay) - 1.0)
     return torch.maximum(torch.tensor(1, device=s.device), torch.ceil(ivl))
 
 
-def s_max_aware_next_interval(s, d, dr):
-    int_base = next_interval_torch(s, dr)
+def s_max_aware_next_interval(s, d, dr, decay):
+    int_base = next_interval_torch(s, dr, decay)
     int_req = next_interval_ceil(
-        s, max_r_to_reach_next_stability(s, S_MAX + 1e-3, d, torch.full_like(s, 3))
+        s,
+        max_r_to_reach_next_stability(s, S_MAX + 1e-3, d, torch.full_like(s, 3)),
+        decay,
     )
     return torch.where(s > S_MAX, 1e9, torch.minimum(int_base, int_req))
 
 
-def s_max_aware_fixed_interval(s, d, fixed_interval):
+def s_max_aware_fixed_interval(s, d, fixed_interval, decay):
     int_base = fixed_interval
     int_req = next_interval_ceil(
-        s, max_r_to_reach_next_stability(s, S_MAX + 1e-3, d, torch.full_like(s, 3))
+        s,
+        max_r_to_reach_next_stability(s, S_MAX + 1e-3, d, torch.full_like(s, 3)),
+        decay,
     )
     return torch.where(
         s > S_MAX, 1e9, torch.minimum(torch.tensor(int_base, device=s.device), int_req)
@@ -171,7 +175,6 @@ class SSPMMCSolver:
         first_session_lens,
         forget_rating_offset,
         forget_session_len,
-        loss_aversion,
         w,
     ):
         self.review_costs = review_costs
@@ -181,7 +184,6 @@ class SSPMMCSolver:
         self.first_session_lens = first_session_lens
         self.forget_rating_offset = forget_rating_offset
         self.forget_session_len = forget_session_len
-        self.loss_aversion = loss_aversion
         self.w = w
 
         # Initialize state spaces
@@ -214,10 +216,9 @@ class SSPMMCSolver:
 
     def stability_short_term(self, s):
         """Calculate short-term stability."""
-        return s * np.exp(
-            self.w[17]
-            * (self.forget_rating_offset + self.forget_session_len * self.w[18])
-        )
+        rating = 3
+        sinc = np.exp(self.w[17] * (rating - 3 + self.w[18])) * np.power(s, -self.w[19])
+        return s * sinc
 
     def init_s(self, rating):
         """Initialize stability for a given rating."""
@@ -392,8 +393,12 @@ class SSPMMCSolver:
     def solve(self, n_iter=10000, verbose=True):
         """Solve the SSP-MMC problem using value iteration."""
         # Initial setup
-        ivl_mesh = next_interval(self.s_state_mesh_3d, self.r_state_mesh_3d)
-        self.r_state_mesh_3d = power_forgetting_curve(ivl_mesh, self.s_state_mesh_3d)
+        ivl_mesh = next_interval(
+            self.s_state_mesh_3d, self.r_state_mesh_3d, -self.w[20]
+        )
+        self.r_state_mesh_3d = power_forgetting_curve(
+            ivl_mesh, self.s_state_mesh_3d, -self.w[20]
+        )
         zeros = np.zeros_like(self.s_state_mesh_3d)  # For broadcasting
         transitions = []
         transition_probs = []
@@ -410,7 +415,7 @@ class SSPMMCSolver:
             np.stack([self.d2i(next_d_again), self.s2i(next_s_again)], axis=-1)
         )
         transition_probs.append(1.0 - self.r_state_mesh_3d)
-        costs.append(zeros + self.review_costs[0] * self.loss_aversion)
+        costs.append(zeros + self.review_costs[0])
 
         # Calculate costs for each rating
         for i, (g, review_cost) in enumerate(zip([2, 3, 4], self.review_costs[1:])):
@@ -460,8 +465,7 @@ class SSPMMCSolver:
 
         while i < n_iter and cost_diff > 1e-4 * self.s_size * self.d_size:
             cost_again = (
-                self._get_cost(next_s_again, next_d_again)
-                + self.review_costs[0] * self.loss_aversion
+                self._get_cost(next_s_again, next_d_again) + self.review_costs[0]
             )
 
             # Calculate costs for each rating
@@ -493,8 +497,12 @@ class SSPMMCSolver:
         self.s_state_mesh_2d, self.d_state_mesh_2d = np.meshgrid(
             self.s_state, self.d_state
         )
-        ivl_mesh = next_interval(self.s_state_mesh_2d, self.r_state_mesh_2d)
-        self.r_state_mesh_2d = power_forgetting_curve(ivl_mesh, self.s_state_mesh_2d)
+        ivl_mesh = next_interval(
+            self.s_state_mesh_2d, self.r_state_mesh_2d, -self.w[20]
+        )
+        self.r_state_mesh_2d = power_forgetting_curve(
+            ivl_mesh, self.s_state_mesh_2d, -self.w[20]
+        )
         return self._evaluate_policy(n_iter)
 
     def _get_cost(self, s, d):
@@ -511,7 +519,6 @@ if __name__ == "__main__":
         first_session_lens=DEFAULT_FIRST_SESSION_LENS,
         forget_rating_offset=DEFAULT_FORGET_RATING_OFFSET,
         forget_session_len=DEFAULT_FORGET_SESSION_LEN,
-        loss_aversion=LOSS_AVERSION,
         w=w,
     )
 
@@ -544,7 +551,7 @@ if __name__ == "__main__":
     ax.set_box_aspect(None, zoom=0.8)
 
     ax = fig.add_subplot(133, projection="3d")
-    interval_matrix = next_interval(s_state_mesh_2d, retention_matrix)
+    interval_matrix = next_interval(s_state_mesh_2d, retention_matrix, -w[20])
     ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, interval_matrix, cmap="viridis")
     ax.set_xlabel("Stability")
     ax.set_ylabel("Difficulty")
@@ -563,7 +570,7 @@ if __name__ == "__main__":
         mask = (d_index >= solver.d_size) | (s_index >= solver.s_size - 1)
         optimal_interval = torch.zeros_like(s)
         optimal_interval[~mask] = next_interval_torch(
-            s[~mask], retention_matrix_tensor[d_index[~mask], s_index[~mask]]
+            s[~mask], retention_matrix_tensor[d_index[~mask], s_index[~mask]], -w[20]
         )
         optimal_interval[mask] = np.inf
         return optimal_interval
@@ -581,7 +588,6 @@ if __name__ == "__main__":
             device=DEVICE,
             deck_size=10000,
             learn_span=365 * 10,
-            loss_aversion=LOSS_AVERSION,
             s_max=S_MAX,
         )
 
@@ -653,7 +659,7 @@ if __name__ == "__main__":
                 optimal_r = retention_matrix[d_index, s_index]
                 s_list.append(cur_s)
                 r_list.append(optimal_r)
-                ivl_list.append(next_interval(cur_s, optimal_r))
+                ivl_list.append(next_interval(cur_s, optimal_r, -w[20]))
                 cur_s = solver.stability_after_success(cur_s, cur_d, optimal_r, rating)
                 cur_d = solver.next_d(cur_d, rating)
                 d_index, s_index = solver.d2i(cur_d), solver.s2i(cur_s)
@@ -731,7 +737,9 @@ if __name__ == "__main__":
         plt.tight_layout()
         plt.savefig(f"./plot/DR={r:.2f}.png")
         plt.close()
-        plot_simulation(lambda s, d: s_max_aware_next_interval(s, d, r), f"DR={r:.2f}")
+        plot_simulation(
+            lambda s, d: s_max_aware_next_interval(s, d, r, -w[20]), f"DR={r:.2f}"
+        )
 
     fig = plt.figure(figsize=(8, 8))
     ax = fig.add_subplot(111)
@@ -748,7 +756,7 @@ if __name__ == "__main__":
 
     for fixed_interval in [3, 7, 30]:
         plot_simulation(
-            lambda s, d: s_max_aware_fixed_interval(s, d, fixed_interval),
+            lambda s, d: s_max_aware_fixed_interval(s, d, fixed_interval, -w[20]),
             f"IVL={fixed_interval}",
         )
 
