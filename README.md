@@ -16,14 +16,14 @@ When a fixed value of desired retention (DR) is used, the intervals correspond t
 
 Deck size = 10,000 cards, new cards per day = 10, max. reviews per day = 9,999, max. studying time per day = 360 minutes.
 
-The best result is highlighted in **bold**. The worst result is highlighted in $${\color{red}red}$$.
+The best result is highlighted in **bold**.
 
 ### Duration of the simulation = 365 days
 
 | Schedulling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute |
 | --- | --- | --- | --- | --- |
 | SSP-MMC | 64.2 | 13.9 | 3302 | 237 |
-| DR=0.70 | **33.1** | **9.9** | $${\color{red}2898}$$ | **293** |
+| DR=0.70 | **33.1** | **9.9** | 2898 | **293** |
 | DR=0.73 | 37.9 | 10.6 | 2998 | 282 |
 | DR=0.76 | 43.3 | 11.4 | 3076 | 270 |
 | DR=0.79 | 49.1 | 12.1 | 3142 | 259 |
@@ -33,7 +33,7 @@ The best result is highlighted in **bold**. The worst result is highlighted in $
 | DR=0.91 | 100.5 | 18.9 | 3389 | 180 |
 | DR=0.94 | 138.1 | 23.8 | 3443 | 144 |
 | DR=0.97 | 238.8 | 37.3 | 3496 | 94 |
-| IVL=3 | $${\color{red}603.3}$$ | $${\color{red}86.8}$$ | **3521** | $${\color{red}41}$$ |
+| IVL=3 | 603.3 | 86.8 | **3521** | 41 |
 | IVL=7 | 255.7 | 40.6 | 3468 | 86 |
 | IVL=30 | 55.8 | 13.4 | 3127 | 234 |
 
@@ -44,7 +44,7 @@ The best result is highlighted in **bold**. The worst result is highlighted in $
 | Schedulling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute |
 | --- | --- | --- | --- | --- |
 | SSP-MMC | 60.2 | 11.5 | 9540 | 827 |
-| DR=0.70 | **39.0** | **8.9** | $${\color{red}8605}$$ | **968** |
+| DR=0.70 | **39.0** | **8.9** | 8605 | **968** |
 | DR=0.73 | 43.3 | 9.5 | 8831 | 932 |
 | DR=0.76 | 48.2 | 10.1 | 9043 | 895 |
 | DR=0.79 | 53.8 | 10.8 | 9228 | 857 |
@@ -54,7 +54,7 @@ The best result is highlighted in **bold**. The worst result is highlighted in $
 | DR=0.91 | 100.2 | 16.5 | 9772 | 593 |
 | DR=0.94 | 135.7 | 21.1 | 9866 | 468 |
 | DR=0.97 | 236.7 | 34.5 | 9943 | 288 |
-| IVL=3 | $${\color{red}2199.5}$$ | $${\color{red}298.6}$$ | **9991** | $${\color{red}33}$$ |
+| IVL=3 | 2199.5 | 298.6 | **9991** | 33 |
 | IVL=7 | 959.5 | 132.7 | 9981 | 75 |
 | IVL=30 | 198.0 | 31.3 | 9850 | 315 |
 
