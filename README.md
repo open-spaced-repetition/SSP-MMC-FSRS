@@ -16,11 +16,11 @@ When a fixed value of desired retention (DR) is used, the intervals correspond t
 
 Deck size = 10,000 cards, new cards per day = 10, max. reviews per day = 9,999, max. studying time per day = 360 minutes.
 
-The best result is highlighted in **bold**.
+The best result is highlighted in **bold**. Arrows indicate whether lower (↓) or higher (↑) values are better.
 
 ### Duration of the simulation = 365 days
 
-| Schedulling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute |
+| Schedulling Policy | Average number of reviews per day↓ | Average number of minutes per day↓ | Total knowledge at the end↑ | Knowledge per minute↑ |
 | --- | --- | --- | --- | --- |
 | SSP-MMC | 64.2 | 13.9 | 3302 | 237 |
 | DR=0.70 | **33.1** | **9.9** | 2898 | **293** |
@@ -39,7 +39,7 @@ The best result is highlighted in **bold**.
 
 ### Duration of the simulation = 3650 days
 
-| Schedulling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute |
+| Schedulling Policy | Average number of reviews per day↓ | Average number of minutes per day↓ | Total knowledge at the end↑ | Knowledge per minute↑ |
 | --- | --- | --- | --- | --- |
 | SSP-MMC | 60.2 | 11.5 | 9540 | 827 |
 | DR=0.70 | **39.0** | **8.9** | 8605 | **968** |
