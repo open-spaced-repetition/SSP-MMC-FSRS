@@ -37,8 +37,6 @@ The best result is highlighted in **bold**.
 | IVL=7 | 255.7 | 40.6 | 3468 | 86 |
 | IVL=30 | 55.8 | 13.4 | 3127 | 234 |
 
-### More Explanations
-
 ### Duration of the simulation = 3650 days
 
 | Schedulling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute |
