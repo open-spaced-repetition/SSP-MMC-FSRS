@@ -763,7 +763,7 @@ if __name__ == "__main__":
     print("--------------------------------")
 
     print(
-        "| Schedulling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute |"
+        "| Scheduling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute |"
     )
     print("| --- | --- | --- | --- | --- |")
     for (
