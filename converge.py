@@ -40,7 +40,6 @@ def test_user(user_id):
         first_session_lens,
         forget_rating_offset,
         forget_session_len,
-        2.5,
         w,
     )
     cost_matrix, _ = solver.solve(verbose=False)
