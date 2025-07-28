@@ -41,6 +41,8 @@ R_EPS = 0.01
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 PARALLEL = 100
 
+COST_MAX = 1000
+
 w = [
     0.212,
     1.2931,
@@ -348,7 +350,7 @@ class SSPMMCSolver:
         r_min=R_MIN,
         r_max=R_MAX,
         r_eps=R_EPS,
-        cost_max=1000,
+        cost_max=COST_MAX,
     ):
         # Stability state space
         self.s_min = s_min
@@ -444,7 +446,7 @@ class SSPMMCSolver:
     def _evaluate_policy(self, n_iter=10000):
         """Evaluate the cost and retention for a given r_state_mesh_2d."""
         i = 0
-        cost_diff = 1000
+        cost_diff = COST_MAX
         # Pre-calculate next states for again case
         next_s_again = self.stability_short_term(
             self.stability_after_failure(

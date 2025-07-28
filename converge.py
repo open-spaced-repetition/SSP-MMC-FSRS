@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 import numpy as np
-from script import SSPMMCSolver
+from script import SSPMMCSolver, COST_MAX
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm  # Optional: for progress bar
 
@@ -43,7 +43,7 @@ def test_user(user_id):
         w,
     )
     cost_matrix, _ = solver.solve(verbose=False)
-    return (cost_matrix == 1000).sum() < cost_matrix.size / 8
+    return (cost_matrix == COST_MAX).sum() < cost_matrix.size / 8
 
 
 if __name__ == "__main__":
