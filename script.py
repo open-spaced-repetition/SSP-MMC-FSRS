@@ -555,13 +555,11 @@ def create_fixed_interval_policy(interval):
         return s_max_aware_fixed_interval(stability, difficulty, interval, -w[20])
     return fixed_policy
 
-
 def create_dr_policy(desired_retention):
     """Create a DR policy that uses the full 4-parameter signature"""
     def dr_policy(stability, difficulty, prev_interval, grade):
         return s_max_aware_next_interval(stability, difficulty, desired_retention, -w[20])
     return dr_policy
-
 
 if __name__ == "__main__":
     solver = SSPMMCSolver(
