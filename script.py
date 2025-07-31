@@ -549,6 +549,46 @@ def memrise_policy(stability, difficulty, prev_interval, grade):
 
     return result
 
+def create_fixed_interval_policy(interval):
+    """Create a fixed interval policy that uses the full 4-parameter signature"""
+    def fixed_policy(stability, difficulty, prev_interval, grade):
+        return s_max_aware_fixed_interval(stability, difficulty, interval, -w[20])
+    return fixed_policy
+
+
+def create_dr_policy(desired_retention):
+    """Create a DR policy that uses the full 4-parameter signature"""
+    def dr_policy(stability, difficulty, prev_interval, grade):
+        return s_max_aware_next_interval(stability, difficulty, desired_retention, -w[20])
+    return dr_policy
+
+
+def analyze_policy_intervals(policy, name):
+    """Analyze the interval distribution of a policy"""
+    # Test with various scenarios
+    stability_vals = [1, 5, 10, 20, 50, 100]
+    difficulty_vals = [2, 5, 8]
+    prev_intervals = [1, 6, 12, 48, 96, 180]
+    grades = [1, 2, 3, 4]
+
+    print(f"\n{name} Interval Analysis:")
+    print("s\td\tprev\tgrade\tnew_ivl")
+
+    for s in stability_vals[:3]:  # Limit output
+        for d in difficulty_vals[:2]:
+            for prev in prev_intervals[:3]:
+                for g in grades:
+                    s_tensor = torch.tensor([s], dtype=torch.float32, device=DEVICE)
+                    d_tensor = torch.tensor([d], dtype=torch.float32, device=DEVICE)
+                    prev_tensor = torch.tensor([prev], dtype=torch.float32, device=DEVICE)
+                    g_tensor = torch.tensor([g], dtype=torch.int32, device=DEVICE)
+
+                    try:
+                        result = policy(s_tensor, d_tensor, prev_tensor, g_tensor)
+                        print(f"{s}\t{d}\t{prev}\t{g}\t{result[0]:.1f}")
+                    except Exception as e:
+                        print(f"{s}\t{d}\t{prev}\t{g}\tERROR: {e}")
+
 if __name__ == "__main__":
     solver = SSPMMCSolver(
         review_costs=DEFAULT_REVIEW_COSTS,
@@ -778,9 +818,8 @@ if __name__ == "__main__":
         plt.tight_layout()
         plt.savefig(f"./plot/DR={r:.2f}.png")
         plt.close()
-        plot_simulation(
-            lambda s, d: s_max_aware_next_interval(s, d, r, -w[20]), f"DR={r:.2f}"
-        )
+        dr_policy = create_dr_policy(r)
+        plot_simulation(dr_policy, f"DR={r:.2f}")
 
     fig = plt.figure(figsize=(8, 8))
     ax = fig.add_subplot(111)
@@ -796,10 +835,8 @@ if __name__ == "__main__":
     plt.close()
 
     for fixed_interval in [3, 7, 30]:
-        plot_simulation(
-            lambda s, d: s_max_aware_fixed_interval(s, d, fixed_interval, -w[20]),
-            f"IVL={fixed_interval}",
-        )
+        fixed_policy = create_fixed_interval_policy(fixed_interval)
+        plot_simulation(fixed_policy, f"IVL={fixed_interval}")
 
     print("--------------------------------")
 
