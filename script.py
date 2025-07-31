@@ -563,32 +563,6 @@ def create_dr_policy(desired_retention):
     return dr_policy
 
 
-def analyze_policy_intervals(policy, name):
-    """Analyze the interval distribution of a policy"""
-    # Test with various scenarios
-    stability_vals = [1, 5, 10, 20, 50, 100]
-    difficulty_vals = [2, 5, 8]
-    prev_intervals = [1, 6, 12, 48, 96, 180]
-    grades = [1, 2, 3, 4]
-
-    print(f"\n{name} Interval Analysis:")
-    print("s\td\tprev\tgrade\tnew_ivl")
-
-    for s in stability_vals[:3]:  # Limit output
-        for d in difficulty_vals[:2]:
-            for prev in prev_intervals[:3]:
-                for g in grades:
-                    s_tensor = torch.tensor([s], dtype=torch.float32, device=DEVICE)
-                    d_tensor = torch.tensor([d], dtype=torch.float32, device=DEVICE)
-                    prev_tensor = torch.tensor([prev], dtype=torch.float32, device=DEVICE)
-                    g_tensor = torch.tensor([g], dtype=torch.int32, device=DEVICE)
-
-                    try:
-                        result = policy(s_tensor, d_tensor, prev_tensor, g_tensor)
-                        print(f"{s}\t{d}\t{prev}\t{g}\t{result[0]:.1f}")
-                    except Exception as e:
-                        print(f"{s}\t{d}\t{prev}\t{g}\tERROR: {e}")
-
 if __name__ == "__main__":
     solver = SSPMMCSolver(
         review_costs=DEFAULT_REVIEW_COSTS,
