@@ -514,6 +514,7 @@ class SSPMMCSolver:
 def memrise_policy(stability, difficulty, prev_interval, grade):
     """
     Vectorized version of fixed sequence policy with closest interval matching
+    Special case: if prev_interval=0 (new cards), start with interval=1
     """
     device = prev_interval.device
     dtype = prev_interval.dtype
@@ -521,8 +522,10 @@ def memrise_policy(stability, difficulty, prev_interval, grade):
     # Define the interval sequence
     sequence = torch.tensor([1, 6, 12, 48, 96, 180], device=device, dtype=dtype)
 
-    # Find the closest interval in the sequence for each prev_interval
-    # Calculate absolute differences between prev_interval and each sequence value
+    # Special case: new cards (prev_interval = 0) always start with 1 day
+    is_new_card = prev_interval == 0
+
+    # For existing cards, find the closest interval in the sequence
     prev_expanded = prev_interval.unsqueeze(-1)  # Shape: (..., 1)
     sequence_expanded = sequence.unsqueeze(0).expand_as(
         torch.cat([prev_expanded] * len(sequence), dim=-1)
@@ -540,11 +543,19 @@ def memrise_policy(stability, difficulty, prev_interval, grade):
     # Get the next intervals
     next_intervals = sequence[next_indices]
 
-    # Handle Again case: reset to 1 day
+    # Handle different cases:
+    # 1. New cards (prev_interval=0): always start with 1 day
+    # 2. Again grade: reset to 1 day
+    # 3. Hard/Good/Easy: advance in sequence with s_max awareness
     result = torch.where(
-        grade == 1,  # Again
-        torch.ones_like(prev_interval),  # Reset to 1 day
-        next_intervals  # Hard/Good/Easy: advance from closest sequence position
+        is_new_card,  # New cards
+        torch.ones_like(prev_interval),  # Start with 1 day
+        torch.where(
+            grade == 1,  # Again
+            torch.ones_like(prev_interval),  # Reset to 1 day
+            s_max_aware_fixed_interval(stability, difficulty, next_intervals, -w[20])
+            # Hard/Good/Easy: advance from closest sequence position
+        )
     )
 
     return result
