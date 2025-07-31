@@ -42,16 +42,17 @@ def _call_policy_with_fallback(policy, stability, difficulty, prev_interval=None
     Tries to call with all parameters first, falls back to legacy signature.
     """
     try:
-        # Try new signature first
-        sig = inspect.signature(policy)
-        if len(sig.parameters) >= 4:
-            return policy(stability, difficulty, prev_interval, grade)
-        else:
-            # Fall back to legacy signature
-            return policy(stability, difficulty)
+        # Try new signature first (4 parameters)
+        return policy(stability, difficulty, prev_interval, grade)
     except TypeError:
-        # If it fails, try legacy signature
-        return policy(stability, difficulty)
+        try:
+            # Fall back to legacy signature (2 parameters)
+            return policy(stability, difficulty)
+        except TypeError:
+            # If both fail, raise a more helpful error
+            raise TypeError(f"Policy {policy.__name__ if hasattr(policy, '__name__') else str(policy)} "
+                          f"doesn't support either 2-parameter (stability, difficulty) or "
+                          f"4-parameter (stability, difficulty, prev_interval, grade) signatures")
 
 @torch.inference_mode()
 def simulate(
