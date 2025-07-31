@@ -2,6 +2,7 @@ import numpy as np
 import math
 import torch
 from tqdm import trange
+import inspect
 
 
 def power_forgetting_curve(t, s, decay, s_max=math.inf):
@@ -42,7 +43,6 @@ def _call_policy_with_fallback(policy, stability, difficulty, prev_interval=None
     """
     try:
         # Try new signature first
-        import inspect
         sig = inspect.signature(policy)
         if len(sig.parameters) >= 4:
             return policy(stability, difficulty, prev_interval, grade)
