@@ -35,28 +35,45 @@ DEFAULT_FIRST_SESSION_LENS = np.array([2.02, 1.28, 0.81, 0.0])
 DEFAULT_FORGET_RATING_OFFSET = -0.28
 DEFAULT_FORGET_SESSION_LEN = 1.05
 
+def _call_policy_with_fallback(policy, stability, difficulty, prev_interval=None, grade=None):
+    """
+    Helper function to call policy with backward compatibility.
+    Tries to call with all parameters first, falls back to legacy signature.
+    """
+    try:
+        # Try new signature first
+        import inspect
+        sig = inspect.signature(policy)
+        if len(sig.parameters) >= 4:
+            return policy(stability, difficulty, prev_interval, grade)
+        else:
+            # Fall back to legacy signature
+            return policy(stability, difficulty)
+    except TypeError:
+        # If it fails, try legacy signature
+        return policy(stability, difficulty)
 
 @torch.inference_mode()
 def simulate(
-    parallel,
-    w,
-    policy,
-    device,
-    deck_size=10000,
-    learn_span=365,
-    max_cost_perday=86400 / 4,
-    learn_limit_perday=10,
-    review_limit_perday=9999,
-    learn_costs=DEFAULT_LEARN_COSTS,
-    review_costs=DEFAULT_REVIEW_COSTS,
-    first_rating_prob=DEFAULT_FIRST_RATING_PROB,
-    review_rating_prob=DEFAULT_REVIEW_RATING_PROB,
-    first_rating_offset=DEFAULT_FIRST_RATING_OFFSETS,
-    first_session_len=DEFAULT_FIRST_SESSION_LENS,
-    forget_rating_offset=DEFAULT_FORGET_RATING_OFFSET,
-    forget_session_len=DEFAULT_FORGET_SESSION_LEN,
-    seed=42,
-    s_max=math.inf,
+        parallel,
+        w,
+        policy,
+        device,
+        deck_size=10000,
+        learn_span=365,
+        max_cost_perday=86400 / 4,
+        learn_limit_perday=10,
+        review_limit_perday=9999,
+        learn_costs=DEFAULT_LEARN_COSTS,
+        review_costs=DEFAULT_REVIEW_COSTS,
+        first_rating_prob=DEFAULT_FIRST_RATING_PROB,
+        review_rating_prob=DEFAULT_REVIEW_RATING_PROB,
+        first_rating_offset=DEFAULT_FIRST_RATING_OFFSETS,
+        first_session_len=DEFAULT_FIRST_SESSION_LENS,
+        forget_rating_offset=DEFAULT_FORGET_RATING_OFFSET,
+        forget_session_len=DEFAULT_FORGET_SESSION_LEN,
+        seed=42,
+        s_max=math.inf,
 ):
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -90,13 +107,13 @@ def simulate(
             torch.tensor(0.01, device=s.device),
             s
             * (
-                1
-                + np.exp(w[8])
-                * (11 - d)
-                * torch.pow(s, -w[9])
-                * (torch.exp((1 - r) * w[10]) - 1)
-                * hard_penalty
-                * easy_bonus
+                    1
+                    + np.exp(w[8])
+                    * (11 - d)
+                    * torch.pow(s, -w[9])
+                    * (torch.exp((1 - r) * w[10]) - 1)
+                    * hard_penalty
+                    * easy_bonus
             ),
         )
 
@@ -158,9 +175,9 @@ def simulate(
         cost = torch.where(~need_review, cost, review_costs_tensor[rating - 1])
 
         true_review = (
-            need_review
-            & (torch.cumsum(cost, dim=-1) <= max_cost_perday)
-            & (torch.cumsum(need_review, dim=-1) <= review_limit_perday)
+                need_review
+                & (torch.cumsum(cost, dim=-1) <= max_cost_perday)
+                & (torch.cumsum(need_review, dim=-1) <= review_limit_perday)
         )
         last_date = torch.where(true_review, today, last_date)
         lapses = lapses + (true_review & forget)
@@ -188,14 +205,33 @@ def simulate(
         need_learn = stability == 1e-10
         cost = torch.where(~need_learn, cost, learn_costs_tensor[rating - 1])
         true_learn = (
-            need_learn
-            & (torch.cumsum(cost, dim=-1) <= max_cost_perday)
-            & (torch.cumsum(need_learn, dim=-1) <= learn_limit_perday)
+                need_learn
+                & (torch.cumsum(cost, dim=-1) <= max_cost_perday)
+                & (torch.cumsum(need_learn, dim=-1) <= learn_limit_perday)
         )
         last_date = torch.where(true_learn, today, last_date)
         stability = torch.where(true_learn, w_4_tensor[rating - 1], stability)
         difficulty = torch.where(true_learn, init_d_with_short_term(rating), difficulty)
-        ivl = torch.where(true_review | true_learn, policy(stability, difficulty), ivl)
+
+        # Store previous interval for policy calls
+        prev_interval = ivl.clone()
+
+        # Call policy with new signature for reviews
+        new_ivl_review = torch.where(
+            true_review,
+            _call_policy_with_fallback(policy, stability, difficulty, prev_interval, rating),
+            ivl
+        )
+
+        # Call policy with new signature for learning (prev_interval = 0 for new cards)
+        zero_interval = torch.zeros_like(prev_interval)
+        new_ivl_learn = torch.where(
+            true_learn,
+            _call_policy_with_fallback(policy, stability, difficulty, zero_interval, rating),
+            new_ivl_review
+        )
+
+        ivl = new_ivl_learn
         due = torch.where(true_review | true_learn, today + ivl, due)
 
         review_cnt_per_day[:, today] = true_review.sum(dim=-1)
