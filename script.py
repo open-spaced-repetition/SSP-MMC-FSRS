@@ -511,6 +511,43 @@ class SSPMMCSolver:
         """Get cost from cost matrix for given stability and difficulty."""
         return self.cost_matrix[self.d2i(d), self.s2i(s)]
 
+def memrise_policy(stability, difficulty, prev_interval, grade):
+    """
+    Vectorized version of fixed sequence policy with closest interval matching
+    """
+    device = prev_interval.device
+    dtype = prev_interval.dtype
+
+    # Define the interval sequence
+    sequence = torch.tensor([1, 6, 12, 48, 96, 180], device=device, dtype=dtype)
+
+    # Find the closest interval in the sequence for each prev_interval
+    # Calculate absolute differences between prev_interval and each sequence value
+    prev_expanded = prev_interval.unsqueeze(-1)  # Shape: (..., 1)
+    sequence_expanded = sequence.unsqueeze(0).expand_as(
+        torch.cat([prev_expanded] * len(sequence), dim=-1)
+    )  # Shape: (..., 6)
+
+    # Calculate distances to each sequence value
+    distances = torch.abs(prev_expanded - sequence_expanded)
+
+    # Find the index of the closest sequence value
+    closest_indices = torch.argmin(distances, dim=-1)
+
+    # Calculate next indices (advance by 1, but cap at last position)
+    next_indices = torch.clamp(closest_indices + 1, 0, len(sequence) - 1)
+
+    # Get the next intervals
+    next_intervals = sequence[next_indices]
+
+    # Handle Again case: reset to 1 day
+    result = torch.where(
+        grade == 1,  # Again
+        torch.ones_like(prev_interval),  # Reset to 1 day
+        next_intervals  # Hard/Good/Easy: advance from closest sequence position
+    )
+
+    return result
 
 if __name__ == "__main__":
     solver = SSPMMCSolver(
@@ -642,6 +679,8 @@ if __name__ == "__main__":
         plt.close()
 
     plot_simulation(ssp_mmc_policy, "SSP-MMC")
+
+    plot_simulation(memrise_policy, "Memrise")
 
     def optimal_policy_for_rating_sequence(rating_sequence: list[int]):
         s_list = []
