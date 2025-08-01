@@ -28,9 +28,9 @@ forget_session_len = DEFAULT_FORGET_SESSION_LEN
 
 S_MIN = 0.1
 S_MAX = 365 * 25
-S_MID = 5
-SHORT_STEP = (np.log(S_MID) - np.log(S_MIN)) / 100
-LONG_STEP = (np.log(S_MAX) - np.log(S_MID)) / 1900
+S_MID = 1000
+SHORT_STEP = (np.log(S_MID) - np.log(S_MIN)) / 500
+LONG_STEP = (np.log(S_MAX) - np.log(S_MID)) / 500
 
 D_MIN = 1
 D_MAX = 10
