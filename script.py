@@ -75,7 +75,7 @@ def bellman_solver(
     transitions_np: list[np.array],
     transition_probs_np: list[np.array],
     costs_np: np.array,
-    discount_factor=1.0,
+    discount_factor=0.97,
     device=DEVICE,
 ):
     S, D, R = costs_np[0].shape
