@@ -394,7 +394,7 @@ class SSPMMCSolver:
             self.s_state, self.d_state, self.r_state
         )
 
-    def solve(self, n_iter=10000, verbose=True):
+    def solve(self, n_iter=100_000, verbose=True):
         """Solve the SSP-MMC problem using value iteration."""
         # Initial setup
         ivl_mesh = next_interval(
@@ -445,7 +445,7 @@ class SSPMMCSolver:
         ]
         return self.cost_matrix, self.retention_matrix
 
-    def _evaluate_policy(self, n_iter=10000):
+    def _evaluate_policy(self, n_iter=100_000):
         """Evaluate the cost and retention for a given r_state_mesh_2d."""
         i = 0
         cost_diff = COST_MAX
@@ -495,7 +495,7 @@ class SSPMMCSolver:
             i += 1
         return self.cost_matrix, self.r_state_mesh_2d
 
-    def evaluate_r_threshold(self, r_threshold, n_iter=10000):
+    def evaluate_r_threshold(self, r_threshold, n_iter=100_000):
         """Evaluate the cost and retention for a given r threshold."""
         self.r_state_mesh_2d = r_threshold * np.ones_like(self.cost_matrix)
         self.s_state_mesh_2d, self.d_state_mesh_2d = np.meshgrid(
