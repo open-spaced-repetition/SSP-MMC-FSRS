@@ -762,7 +762,7 @@ if __name__ == "__main__":
 
     costs = []
 
-    r_range = np.linspace(R_MIN, R_MAX, 10)
+    r_range = np.arange(R_MIN, R_MAX+1, 0.01)
 
     for r in r_range:
         print("--------------------------------")
