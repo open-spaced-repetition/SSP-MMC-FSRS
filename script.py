@@ -27,21 +27,22 @@ forget_rating_offset = DEFAULT_FORGET_RATING_OFFSET
 forget_session_len = DEFAULT_FORGET_SESSION_LEN
 
 S_MIN = 0.1
-S_MAX = 365 * 3
-SHORT_STEP = np.log(2) / 20
-LONG_STEP = 5
+S_MAX = 365 * 25
+S_MID = 5
+SHORT_STEP = (np.log(S_MID) - np.log(S_MIN)) / 100
+LONG_STEP = (np.log(S_MAX) - np.log(S_MID)) / 1900
 
 D_MIN = 1
 D_MAX = 10
 D_EPS = 0.1
 
 R_MIN = 0.70
-R_MAX = 0.97
+R_MAX = 0.99
 R_EPS = 0.01
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 PARALLEL = 100
 
-COST_MAX = 1000
+COST_MAX = 1_000_000
 
 w = [
     0.212,
@@ -74,7 +75,7 @@ def bellman_solver(
     transitions_np: list[np.array],
     transition_probs_np: list[np.array],
     costs_np: np.array,
-    discount_factor=1.0,
+    discount_factor=0.97,
     device=DEVICE,
 ):
     S, D, R = costs_np[0].shape
@@ -342,6 +343,7 @@ class SSPMMCSolver:
         self,
         s_min=S_MIN,
         s_max=S_MAX,
+        s_mid=S_MID,
         short_step=SHORT_STEP,
         long_step=LONG_STEP,
         d_min=D_MIN,
@@ -355,15 +357,15 @@ class SSPMMCSolver:
         # Stability state space
         self.s_min = s_min
         self.s_max = s_max
+        self.s_mid = s_mid
         self.short_step = short_step
         self.long_step = long_step
-        self.s_mid = min(self.long_step / (1 - np.exp(-self.short_step)), self.s_max)
 
         self.s_state_small = np.exp(
             np.arange(np.log(self.s_min), np.log(self.s_mid), self.short_step)
         )
-        self.s_state_large = np.arange(
-            max(self.s_state_small) + self.long_step, self.s_max, self.long_step
+        self.s_state_large = np.exp(
+            np.arange(np.log(self.s_mid), np.log(self.s_max), self.long_step)
         )
         self.s_state = np.concatenate([self.s_state_small, self.s_state_large])
         self.s_size = len(self.s_state)
@@ -649,7 +651,7 @@ if __name__ == "__main__":
             policy=policy,
             device=DEVICE,
             deck_size=10000,
-            learn_span=365 * 10,
+            learn_span=365 * 5,
             s_max=S_MAX,
         )
 
