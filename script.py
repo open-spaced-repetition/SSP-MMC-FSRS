@@ -27,7 +27,7 @@ forget_rating_offset = DEFAULT_FORGET_RATING_OFFSET
 forget_session_len = DEFAULT_FORGET_SESSION_LEN
 
 S_MIN = 0.1
-S_MAX = 365 * 3
+S_MAX = 365 * 25
 SHORT_STEP = np.log(2) / 20
 LONG_STEP = 5
 
@@ -36,12 +36,12 @@ D_MAX = 10
 D_EPS = 0.1
 
 R_MIN = 0.70
-R_MAX = 0.97
+R_MAX = 0.99
 R_EPS = 0.01
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 PARALLEL = 100
 
-COST_MAX = 1000
+COST_MAX = 1_000_000
 
 w = [
     0.212,
@@ -74,7 +74,7 @@ def bellman_solver(
     transitions_np: list[np.array],
     transition_probs_np: list[np.array],
     costs_np: np.array,
-    discount_factor=1.0,
+    discount_factor=0.97,
     device=DEVICE,
 ):
     S, D, R = costs_np[0].shape
@@ -392,7 +392,7 @@ class SSPMMCSolver:
             self.s_state, self.d_state, self.r_state
         )
 
-    def solve(self, n_iter=10000, verbose=True):
+    def solve(self, n_iter=100_000, verbose=True):
         """Solve the SSP-MMC problem using value iteration."""
         # Initial setup
         ivl_mesh = next_interval(
@@ -443,7 +443,7 @@ class SSPMMCSolver:
         ]
         return self.cost_matrix, self.retention_matrix
 
-    def _evaluate_policy(self, n_iter=10000):
+    def _evaluate_policy(self, n_iter=100_000):
         """Evaluate the cost and retention for a given r_state_mesh_2d."""
         i = 0
         cost_diff = COST_MAX
@@ -493,7 +493,7 @@ class SSPMMCSolver:
             i += 1
         return self.cost_matrix, self.r_state_mesh_2d
 
-    def evaluate_r_threshold(self, r_threshold, n_iter=10000):
+    def evaluate_r_threshold(self, r_threshold, n_iter=100_000):
         """Evaluate the cost and retention for a given r threshold."""
         self.r_state_mesh_2d = r_threshold * np.ones_like(self.cost_matrix)
         self.s_state_mesh_2d, self.d_state_mesh_2d = np.meshgrid(
@@ -511,6 +511,66 @@ class SSPMMCSolver:
         """Get cost from cost matrix for given stability and difficulty."""
         return self.cost_matrix[self.d2i(d), self.s2i(s)]
 
+def memrise_policy(stability, difficulty, prev_interval, grade):
+    """
+    Vectorized version of fixed sequence policy with closest interval matching
+    Special case: if prev_interval=0 (new cards), start with interval=1
+    """
+    device = prev_interval.device
+    dtype = prev_interval.dtype
+
+    # Define the interval sequence
+    sequence = torch.tensor([1, 6, 12, 48, 96, 180], device=device, dtype=dtype)
+
+    # Special case: new cards (prev_interval = 0) always start with 1 day
+    is_new_card = prev_interval == 0
+
+    # For existing cards, find the closest interval in the sequence
+    prev_expanded = prev_interval.unsqueeze(-1)  # Shape: (..., 1)
+    sequence_expanded = sequence.unsqueeze(0).expand_as(
+        torch.cat([prev_expanded] * len(sequence), dim=-1)
+    )  # Shape: (..., 6)
+
+    # Calculate distances to each sequence value
+    distances = torch.abs(prev_expanded - sequence_expanded)
+
+    # Find the index of the closest sequence value
+    closest_indices = torch.argmin(distances, dim=-1)
+
+    # Calculate next indices (advance by 1, but cap at last position)
+    next_indices = torch.clamp(closest_indices + 1, 0, len(sequence) - 1)
+
+    # Get the next intervals
+    next_intervals = sequence[next_indices]
+
+    # Handle different cases:
+    # 1. New cards (prev_interval=0): always start with 1 day
+    # 2. Again grade: reset to 1 day
+    # 3. Hard/Good/Easy: advance in sequence with s_max awareness
+    result = torch.where(
+        is_new_card,  # New cards
+        torch.ones_like(prev_interval),  # Start with 1 day
+        torch.where(
+            grade == 1,  # Again
+            torch.ones_like(prev_interval),  # Reset to 1 day
+            s_max_aware_fixed_interval(stability, difficulty, next_intervals, -w[20])
+            # Hard/Good/Easy: advance from closest sequence position
+        )
+    )
+
+    return result
+
+def create_fixed_interval_policy(interval):
+    """Create a fixed interval policy that uses the full 4-parameter signature"""
+    def fixed_policy(stability, difficulty, prev_interval, grade):
+        return s_max_aware_fixed_interval(stability, difficulty, interval, -w[20])
+    return fixed_policy
+
+def create_dr_policy(desired_retention):
+    """Create a DR policy that uses the full 4-parameter signature"""
+    def dr_policy(stability, difficulty, prev_interval, grade):
+        return s_max_aware_next_interval(stability, difficulty, desired_retention, -w[20])
+    return dr_policy
 
 if __name__ == "__main__":
     solver = SSPMMCSolver(
@@ -589,7 +649,7 @@ if __name__ == "__main__":
             policy=policy,
             device=DEVICE,
             deck_size=10000,
-            learn_span=365 * 10,
+            learn_span=365 * 5,
             s_max=S_MAX,
         )
 
@@ -642,6 +702,8 @@ if __name__ == "__main__":
         plt.close()
 
     plot_simulation(ssp_mmc_policy, "SSP-MMC")
+
+    plot_simulation(memrise_policy, "Memrise")
 
     def optimal_policy_for_rating_sequence(rating_sequence: list[int]):
         s_list = []
@@ -700,7 +762,7 @@ if __name__ == "__main__":
 
     costs = []
 
-    r_range = np.linspace(R_MIN, R_MAX, 10)
+    r_range = np.arange(R_MIN, R_MAX, 0.01)
 
     for r in r_range:
         print("--------------------------------")
@@ -739,9 +801,8 @@ if __name__ == "__main__":
         plt.tight_layout()
         plt.savefig(f"./plot/DR={r:.2f}.png")
         plt.close()
-        plot_simulation(
-            lambda s, d: s_max_aware_next_interval(s, d, r, -w[20]), f"DR={r:.2f}"
-        )
+        dr_policy = create_dr_policy(r)
+        plot_simulation(dr_policy, f"DR={r:.2f}")
 
     fig = plt.figure(figsize=(8, 8))
     ax = fig.add_subplot(111)
@@ -757,10 +818,8 @@ if __name__ == "__main__":
     plt.close()
 
     for fixed_interval in [3, 7, 30]:
-        plot_simulation(
-            lambda s, d: s_max_aware_fixed_interval(s, d, fixed_interval, -w[20]),
-            f"IVL={fixed_interval}",
-        )
+        fixed_policy = create_fixed_interval_policy(fixed_interval)
+        plot_simulation(fixed_policy, f"IVL={fixed_interval}")
 
     print("--------------------------------")
 
