@@ -28,9 +28,8 @@ forget_session_len = DEFAULT_FORGET_SESSION_LEN
 
 S_MIN = 0.1
 S_MAX = 365 * 25
-S_MID = 1000
-SHORT_STEP = (np.log(S_MID) - np.log(S_MIN)) / 500
-LONG_STEP = (np.log(S_MAX) - np.log(S_MID)) / 500
+SHORT_STEP = np.log(2) / 20
+LONG_STEP = 5
 
 D_MIN = 1
 D_MAX = 10
@@ -343,7 +342,6 @@ class SSPMMCSolver:
         self,
         s_min=S_MIN,
         s_max=S_MAX,
-        s_mid=S_MID,
         short_step=SHORT_STEP,
         long_step=LONG_STEP,
         d_min=D_MIN,
@@ -357,15 +355,15 @@ class SSPMMCSolver:
         # Stability state space
         self.s_min = s_min
         self.s_max = s_max
-        self.s_mid = s_mid
         self.short_step = short_step
         self.long_step = long_step
+        self.s_mid = min(self.long_step / (1 - np.exp(-self.short_step)), self.s_max)
 
         self.s_state_small = np.exp(
             np.arange(np.log(self.s_min), np.log(self.s_mid), self.short_step)
         )
-        self.s_state_large = np.exp(
-            np.arange(np.log(self.s_mid), np.log(self.s_max), self.long_step)
+        self.s_state_large = np.arange(
+            max(self.s_state_small) + self.long_step, self.s_max, self.long_step
         )
         self.s_state = np.concatenate([self.s_state_small, self.s_state_large])
         self.s_size = len(self.s_state)
