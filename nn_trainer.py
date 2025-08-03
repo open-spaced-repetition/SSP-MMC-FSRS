@@ -2,13 +2,13 @@ import torch
 from torch import Tensor, nn
 import matplotlib.pyplot as plt
 
-from nn import DROptRunner
+from nn import DROpt as DROptRunner
 
 device = "cuda"
 torch.set_default_device(device)
 
 learn_span = 365
-termination_prob = 1e-3
+termination_prob = 1e-4
 
 w = torch.tensor([
     0.212,
@@ -187,7 +187,7 @@ try:
         cost, memorised = model() 
         cost.retain_grad()
         memorised.retain_grad()
-        loss = (1000 * cost / memorised)
+        loss = (cost * 60).pow(2) / memorised.pow(2)
         loss.backward()
         optimizer.step()
 

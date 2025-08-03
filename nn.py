@@ -1,17 +1,16 @@
 import torch
 from torch import nn
 torch.set_default_device("cuda")
-from script import next_interval_ceil, plot_simulation, s_max_aware_next_interval, simulation_table, w
+from script import DEVICE, plot_simulation, s_max_aware_next_interval, simulation_table, w
 
-class DROptRunner(nn.Module):
+class DROpt(nn.Module):
     def __init__(self):
         super().__init__()
 
         self.nn = nn.Sequential(
+            nn.Sigmoid(),
             nn.Linear(2, 100),
-            nn.ReLU(),
-            nn.Linear(100, 100),
-            nn.ReLU(),
+            nn.ReLU(),            
             nn.Linear(100, 1),
             nn.Sigmoid()  # Output in (0, 1)
         )
@@ -36,7 +35,7 @@ class DROptRunner(nn.Module):
         return self.lerp_s(s, d)
 
 def run_neural_network():
-    model = torch.load("model.pth", weights_only=False)
+    model = torch.load("model.pth", weights_only=False).to(DEVICE)
 
     s = torch.arange(1, 100)
     r = model(s, torch.ones_like(s) * 4)
