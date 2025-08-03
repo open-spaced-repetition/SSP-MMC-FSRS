@@ -11,6 +11,8 @@ class DROpt(nn.Module):
             nn.Sigmoid(),
             nn.Linear(2, 100),
             nn.ReLU(),            
+            nn.Linear(100, 100),
+            nn.ReLU(),            
             nn.Linear(100, 1),
             nn.Sigmoid()  # Output in (0, 1)
         )
@@ -23,7 +25,7 @@ class DROpt(nn.Module):
         # import traceback
 
         # traceback.print_stack()
-        s = s.to(torch.float32)
+        s = s.to(torch.float32) / 365
         d = d.to(torch.float32)
         out = self.nn(torch.stack([s, d], dim=-1)).squeeze(-1)
         out = torch.lerp(torch.ones_like(out) * 0.7,torch.ones_like(out) * 0.95, out)

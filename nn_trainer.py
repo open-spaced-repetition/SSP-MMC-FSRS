@@ -7,8 +7,8 @@ from nn import DROpt as DROptRunner
 device = "cuda"
 torch.set_default_device(device)
 
-learn_span = 365
-termination_prob = 1e-4
+learn_span = 3650
+termination_prob = 1e-3
 
 w = torch.tensor([
     0.212,
@@ -158,10 +158,18 @@ class DROpt(DROptRunner):
         )
         return cost_total
 
-    def memorization(self) -> torch.Tensor:
-        s = torch.arange(1, 100)
-        interval = next_interval(s, self.lerp_s(s, init_d(torch.ones_like(s) * 3)))
-        return integral_power_forgetting_curve(interval, s, -w[20]).mean()
+    def dr_cost(self) -> torch.Tensor:
+        s = torch.arange(1, 365)  
+        ratings = torch.tensor([1, 2, 3, 4], dtype=torch.float32)  
+        rating_matrix = torch.stack([torch.full_like(s, r) for r in ratings], dim=1)  # [99, 4]
+        s = s.repeat(4).flatten()
+        init_diff = init_d(rating_matrix.flatten())  # Assuming elementwise op, shape = [99, 4]
+
+        y = self.lerp_s(s, init_diff)
+        interval = next_interval(s, y)
+
+        return integral_power_forgetting_curve(interval, s, -w[20]).sum()
+
 
     def forward(self):
         cost = self.expected_learn(
@@ -172,7 +180,7 @@ class DROpt(DROptRunner):
             torch.tensor(0.8, requires_grad=True, dtype=torch.float32),
             self.LEARN_COST)
 
-        memorised = self.memorization()
+        memorised = self.dr_cost()
 
         return cost, memorised
 
@@ -185,13 +193,16 @@ try:
         optimizer.zero_grad()
 
         cost, memorised = model() 
-        cost.retain_grad()
-        memorised.retain_grad()
-        loss = (cost * 60).pow(2) / memorised.pow(2)
+        loss = cost / (memorised * learn_span * 10)
         loss.backward()
         optimizer.step()
 
-        print(f"Epoch {epoch} Loss: {loss.item():.4f}, mem/min={(memorised / (cost * 60)).item()}, cost={cost.item()}, memorised={memorised.item()}")
+        with torch.no_grad():
+            s = torch.arange(1, 365, 30)
+            r = model.lerp_s(s, torch.ones_like(s) * 4)
+            print(r)
+
+        print(f"Epoch {epoch} Loss: {loss.item()}, mem/min={(memorised / (cost * 60)).item()}, cost={cost.item()}, memorised={memorised.item()}")
 finally:
     torch.save(model, "model.pth")
 
