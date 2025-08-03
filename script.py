@@ -509,6 +509,69 @@ class SSPMMCSolver:
         """Get cost from cost matrix for given stability and difficulty."""
         return self.cost_matrix[self.d2i(d), self.s2i(s)]
 
+simulation_table = []
+
+def plot_simulation(policy, title):
+    review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(
+        policy
+    )
+    simulation_table.append(
+        (
+            title,
+            review_cnt_per_day.mean(axis=-1).mean(axis=-1),
+            cost_per_day.mean(axis=-1).mean(axis=-1) / 60,
+            memorized_cnt_per_day[:, -1].mean(),
+            (
+                memorized_cnt_per_day[:, -1] / (cost_per_day.mean(axis=-1) / 60)
+            ).mean(),
+        )
+    )
+    fig = plt.figure(figsize=(16, 8.5))
+    ax = fig.add_subplot(131)
+    ax.plot(review_cnt_per_day[0])
+    ax.set_title("Review Count")
+    ax = fig.add_subplot(132)
+    ax.plot(cost_per_day[0], label=f"Total Cost: {cost_per_day[0].sum():.2f}")
+    ax.set_title("Cost")
+    ax.legend()
+    ax = fig.add_subplot(133)
+    ax.plot(
+        memorized_cnt_per_day[0],
+        label=f"Total Memorized: {memorized_cnt_per_day[0][-1]:.2f}",
+    )
+    ax.set_title("Memorized Count")
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(f"./simulation/{title}.png")
+    plt.close()
+
+def simulate_policy(policy):
+    (
+        review_cnt_per_day,
+        _,
+        memorized_cnt_per_day,
+        cost_per_day,
+    ) = simulate(
+        parallel=PARALLEL,
+        w=w,
+        policy=policy,
+        device=DEVICE,
+        deck_size=10000,
+        learn_span=365 * 1,
+        s_max=S_MAX,
+    )
+
+    def moving_average(data, window_size=365 // 20):
+        weights = np.ones(window_size) / window_size
+        return np.apply_along_axis(
+            lambda x: np.convolve(x, weights, mode="valid"), axis=-1, arr=data
+        )
+
+    return (
+        moving_average(review_cnt_per_day),
+        moving_average(cost_per_day),
+        moving_average(memorized_cnt_per_day),
+    )
 
 if __name__ == "__main__":
     solver = SSPMMCSolver(
@@ -574,70 +637,6 @@ if __name__ == "__main__":
         )
         optimal_interval[mask] = np.inf
         return optimal_interval
-
-    def simulate_policy(policy):
-        (
-            review_cnt_per_day,
-            _,
-            memorized_cnt_per_day,
-            cost_per_day,
-        ) = simulate(
-            parallel=PARALLEL,
-            w=w,
-            policy=policy,
-            device=DEVICE,
-            deck_size=10000,
-            learn_span=365 * 10,
-            s_max=S_MAX,
-        )
-
-        def moving_average(data, window_size=365 // 20):
-            weights = np.ones(window_size) / window_size
-            return np.apply_along_axis(
-                lambda x: np.convolve(x, weights, mode="valid"), axis=-1, arr=data
-            )
-
-        return (
-            moving_average(review_cnt_per_day),
-            moving_average(cost_per_day),
-            moving_average(memorized_cnt_per_day),
-        )
-
-    simulation_table = []
-
-    def plot_simulation(policy, title):
-        review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(
-            policy
-        )
-        simulation_table.append(
-            (
-                title,
-                review_cnt_per_day.mean(axis=-1).mean(axis=-1),
-                cost_per_day.mean(axis=-1).mean(axis=-1) / 60,
-                memorized_cnt_per_day[:, -1].mean(),
-                (
-                    memorized_cnt_per_day[:, -1] / (cost_per_day.mean(axis=-1) / 60)
-                ).mean(),
-            )
-        )
-        fig = plt.figure(figsize=(16, 8.5))
-        ax = fig.add_subplot(131)
-        ax.plot(review_cnt_per_day[0])
-        ax.set_title("Review Count")
-        ax = fig.add_subplot(132)
-        ax.plot(cost_per_day[0], label=f"Total Cost: {cost_per_day[0].sum():.2f}")
-        ax.set_title("Cost")
-        ax.legend()
-        ax = fig.add_subplot(133)
-        ax.plot(
-            memorized_cnt_per_day[0],
-            label=f"Total Memorized: {memorized_cnt_per_day[0][-1]:.2f}",
-        )
-        ax.set_title("Memorized Count")
-        ax.legend()
-        plt.tight_layout()
-        plt.savefig(f"./simulation/{title}.png")
-        plt.close()
 
     plot_simulation(ssp_mmc_policy, "SSP-MMC")
 
