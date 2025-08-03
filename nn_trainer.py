@@ -193,7 +193,7 @@ try:
         optimizer.zero_grad()
 
         cost, memorised = model() 
-        loss = cost / (memorised * learn_span * 10)
+        loss = cost / memorised.pow(2)
         loss.backward()
         optimizer.step()
 

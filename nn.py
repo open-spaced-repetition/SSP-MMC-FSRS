@@ -8,11 +8,8 @@ class DROpt(nn.Module):
         super().__init__()
 
         self.nn = nn.Sequential(
-            nn.Sigmoid(),
-            nn.Linear(2, 100),
-            nn.ReLU(),            
-            nn.Linear(100, 100),
-            nn.ReLU(),            
+            nn.Linear(2, 100),        
+            nn.Linear(100, 100),     
             nn.Linear(100, 1),
             nn.Sigmoid()  # Output in (0, 1)
         )

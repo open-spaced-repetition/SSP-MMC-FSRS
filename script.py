@@ -557,7 +557,7 @@ def simulate_policy(policy):
         policy=policy,
         device=DEVICE,
         deck_size=10000,
-        learn_span=365 * 1,
+        learn_span=365 * 10, #
         s_max=S_MAX,
     )
 
