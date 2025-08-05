@@ -26,6 +26,8 @@ first_session_lens = DEFAULT_FIRST_SESSION_LENS
 forget_rating_offset = DEFAULT_FORGET_RATING_OFFSET
 forget_session_len = DEFAULT_FORGET_SESSION_LEN
 
+np.random.seed(42)
+
 S_MIN = 0.1
 S_MAX = 365 * 25
 SHORT_STEP = np.log(2) / 20
