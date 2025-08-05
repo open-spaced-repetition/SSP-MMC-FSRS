@@ -736,8 +736,8 @@ if __name__ == "__main__":
 
     def plot_simulation(policy, title):
         review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(policy)
-        reviews_total = review_cnt_per_day.sum()   # total number of reviews
-        time_total = cost_per_day.sum() / 3600  # total time spent on reviews, hours
+        reviews_total = review_cnt_per_day.sum() / PARALLEL   # total number of reviews
+        time_total = cost_per_day.sum() / (3600 * PARALLEL)  # total time spent on reviews, hours
         memorized_total = memorized_cnt_per_day[:, -1].mean()  # number of memorized cards at the end
         avg_memorized_per_hour = memorized_total / time_total  # efficiency
 
