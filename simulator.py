@@ -36,23 +36,50 @@ DEFAULT_FIRST_SESSION_LENS = np.array([2.02, 1.28, 0.81, 0.0])
 DEFAULT_FORGET_RATING_OFFSET = -0.28
 DEFAULT_FORGET_SESSION_LEN = 1.05
 
-def _call_policy_with_fallback(policy, stability, difficulty, prev_interval=None, grade=None):
+
+def _call_policy_with_fallback(policy, stability, difficulty, prev_interval, grade, ease):
     """
     Helper function to call policy with backward compatibility.
-    Tries to call with all parameters first, falls back to legacy signature.
+    Returns either (interval,) or (interval, new_ease) tuple.
     """
     try:
-        # Try new signature first (4 parameters)
-        return policy(stability, difficulty, prev_interval, grade)
+        # Try new signature first (5 parameters)
+        sig = inspect.signature(policy)
+        if len(sig.parameters) >= 5:
+            result = policy(stability, difficulty, prev_interval, grade, ease)
+        elif len(sig.parameters) >= 4:
+            # Fall back to 4-parameter signature
+            result = policy(stability, difficulty, prev_interval, grade)
+        else:
+            # Fall back to legacy signature (2 parameters)
+            result = policy(stability, difficulty)
+
+        # Handle different return types
+        if isinstance(result, tuple) and len(result) == 2:
+            # Policy returns (interval, new_ease)
+            return result
+        else:
+            # Policy returns only interval, ease unchanged
+            return result, ease
+
     except TypeError:
         try:
-            # Fall back to legacy signature (2 parameters)
-            return policy(stability, difficulty)
+            # Try 4-parameter signature
+            result = policy(stability, difficulty, prev_interval, grade)
+            return result, ease
         except TypeError:
-            # If both fail, raise a more helpful error
-            raise TypeError(f"Policy {policy.__name__ if hasattr(policy, '__name__') else str(policy)} "
-                          f"doesn't support either 2-parameter (stability, difficulty) or "
-                          f"4-parameter (stability, difficulty, prev_interval, grade) signatures")
+            try:
+                # Fall back to legacy signature (2 parameters)
+                result = policy(stability, difficulty)
+                return result, ease
+            except TypeError:
+                # If all fail, raise a more helpful error
+                raise TypeError(f"Policy {policy.__name__ if hasattr(policy, '__name__') else str(policy)} "
+                                f"doesn't support any of the expected signatures: "
+                                f"5 variables (stability, difficulty, prev_interval, grade, ease), "
+                                f"4 variables (stability, difficulty, prev_interval, grade), or "
+                                f"2 variables (stability, difficulty)")
+
 
 @torch.inference_mode()
 def simulate(
@@ -78,15 +105,16 @@ def simulate(
 ):
     torch.manual_seed(seed)
     np.random.seed(seed)
-    due = torch.full((parallel, deck_size), learn_span, device=device)
+    due = torch.full((parallel, deck_size), learn_span, device=device, dtype=torch.float32)  # Make float
     difficulty = torch.full_like(due, 1e-10)
     stability = torch.full_like(due, 1e-10, dtype=torch.float64)
+    ease = torch.full_like(due, 2.5)  # Track ease for Anki-SM-2 support
     retrievability = torch.full_like(due, 0)
     delta_t = torch.zeros_like(due)
     reps = torch.zeros_like(due)
     lapses = torch.zeros_like(due)
     last_date = torch.zeros_like(due)
-    ivl = torch.zeros_like(due)
+    ivl = torch.zeros_like(due, dtype=torch.float32)  # Ensure float type for intervals
     cost = torch.zeros_like(due)
     ratings_np = np.random.choice([1, 2, 3, 4], deck_size, p=first_rating_prob)
     rating = torch.tensor(ratings_np, dtype=torch.int32, device=device)
@@ -217,22 +245,57 @@ def simulate(
         # Store previous interval for policy calls
         prev_interval = ivl.clone()
 
-        # Call policy with new signature for reviews
-        new_ivl_review = torch.where(
-            true_review,
-            _call_policy_with_fallback(policy, stability, difficulty, prev_interval, rating),
-            ivl
-        )
+        # Call policy for reviews
+        new_ivl_review = ivl.clone()
+        new_ease_review = ease.clone()
 
-        # Call policy with new signature for learning (prev_interval = 0 for new cards)
-        zero_interval = torch.zeros_like(prev_interval)
-        new_ivl_learn = torch.where(
-            true_learn,
-            _call_policy_with_fallback(policy, stability, difficulty, zero_interval, rating),
-            new_ivl_review
-        )
+        if true_review.any():
+            review_mask = true_review
+            policy_result = _call_policy_with_fallback(
+                policy,
+                stability[review_mask],
+                difficulty[review_mask],
+                prev_interval[review_mask],
+                rating[review_mask],
+                ease[review_mask]
+            )
 
+            if isinstance(policy_result, tuple):
+                new_intervals, new_eases = policy_result
+                new_ivl_review[review_mask] = new_intervals.float()  # Ensure float
+                new_ease_review[review_mask] = new_eases.float()  # Ensure float
+            else:
+                new_ivl_review[review_mask] = policy_result.float()  # Ensure float
+
+        # Call policy for learning (prev_interval = 0 for new cards)
+        new_ivl_learn = new_ivl_review.clone()
+        new_ease_learn = new_ease_review.clone()
+
+        if true_learn.any():
+            learn_mask = true_learn
+            zero_interval = torch.zeros_like(prev_interval[learn_mask])
+            initial_ease = torch.full_like(ease[learn_mask], 2.5)  # New cards start with ease 2.5
+
+            policy_result = _call_policy_with_fallback(
+                policy,
+                stability[learn_mask],
+                difficulty[learn_mask],
+                zero_interval,
+                rating[learn_mask],
+                initial_ease
+            )
+
+            if isinstance(policy_result, tuple):
+                new_intervals, new_eases = policy_result
+                new_ivl_learn[learn_mask] = new_intervals.float()  # Ensure float
+                new_ease_learn[learn_mask] = new_eases.float()  # Ensure float
+            else:
+                new_ivl_learn[learn_mask] = policy_result.float()  # Ensure float
+                new_ease_learn[learn_mask] = initial_ease
+
+        # Update state variables
         ivl = new_ivl_learn
+        ease = new_ease_learn
         due = torch.where(true_review | true_learn, today + ivl, due)
 
         review_cnt_per_day[:, today] = true_review.sum(dim=-1)
