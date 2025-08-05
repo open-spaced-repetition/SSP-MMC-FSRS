@@ -30,7 +30,7 @@ The best result is highlighted in **bold**. Arrows indicate whether lower (↓) 
 
 | Scheduling Policy | Total number of reviews (thousands)↓ | Total number of hours↓ | Number of memorized cards↑ | Memorized per hour↑ |
 | --- | --- | --- | --- | --- |
-| SSP-MMC (Maximum knowledge) | 9832 | 23098 | **9946** | 0.43 |
+| SSP-MMC (Maximum knowledge) | 9832 | 23098 | 9946 | 0.43 |
 | SSP-MMC | 5448 | 13449 | 9920 | 0.74 |
 | SSP-MMC | 4922 | 12187 | 9891 | 0.81 |
 | SSP-MMC | 3299 | 8652 | 9843 | 1.14 |
@@ -81,8 +81,8 @@ The best result is highlighted in **bold**. Arrows indicate whether lower (↓) 
 | DR=0.96 | 3923 | 9882 | 9793 | 0.99 |
 | DR=0.97 | 4994 | 12274 | 9845 | 0.80 |
 | DR=0.98 | 7045 | 16865 | 9896 | 0.59 |
-| DR=0.99 | 13023 | 30284 | **9946** | 0.33 |
-| Interval=5 | 21160 | 48740 | 9966 | 0.20 |
+| DR=0.99 | 13023 | 30284 | 9946 | 0.33 |
+| Interval=5 | 21160 | 48740 | **9966** | 0.20 |
 | Interval=10 | 10560 | 25149 | 9925 | 0.39 |
 | Interval=20 | 5260 | 13421 | 9817 | 0.73 |
 | Interval=50 | 2080 | 6311 | 9377 | 1.49 |
