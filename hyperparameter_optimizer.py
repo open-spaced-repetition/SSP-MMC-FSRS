@@ -323,3 +323,83 @@ if completed_trials < total_trials:
 # Get Pareto frontier
 frontier = ax.get_pareto_optimal_parameters()
 print_pareto(frontier)
+
+# Advantage-over-fixed-DR maximizer
+def advantage_maximizer(frontier):
+    twod_list_ssp_mmc = []
+    
+    # Anything below this is not good enough
+    knowledge_threshold = 8900
+
+    for number, dictionary in list(frontier.items()):
+        params = dictionary[0]
+        a0, a1, a2, a3, a4, a5 = params['a0'], params['a1'], params['a2'], params['a3'], params['a4'], \
+            params['a5']
+        knowledge, knowledge_per_hour = dictionary[1][0]['knowledge'], dictionary[1][0]['knowledge_per_hour']
+
+        if knowledge >= knowledge_threshold:
+            twod_list_ssp_mmc.append([{'a0': a0, 'a1': a1, 'a2': a2, 'a3': a3, 'a4': a4, 'a5': a5}, knowledge, knowledge_per_hour])
+
+    # I decided to hard-code it because calculating this every time is slow
+    twod_list_dr = [
+    [0.70, 8081, 2.85],
+    [0.71, 8167, 2.78],
+    [0.72, 8243, 2.77],
+    [0.73, 8299, 2.73],
+    [0.74, 8381, 2.68],
+    [0.75, 8482, 2.66],
+    [0.76, 8567, 2.63],
+    [0.77, 8641, 2.57],
+    [0.78, 8729, 2.53],
+    [0.79, 8785, 2.47],
+    [0.80, 8834, 2.44],
+    [0.81, 8905, 2.40],
+    [0.82, 8965, 2.35],
+    [0.83, 9035, 2.30],
+    [0.84, 9109, 2.23],
+    [0.85, 9177, 2.18],
+    [0.86, 9238, 2.12],
+    [0.87, 9287, 2.04],
+    [0.88, 9349, 1.95],
+    [0.89, 9412, 1.86],
+    [0.90, 9465, 1.78],
+    [0.91, 9524, 1.66],
+    [0.92, 9579, 1.58],
+    [0.93, 9635, 1.45],
+    [0.94, 9686, 1.31],
+    [0.95, 9741, 1.16],
+    [0.96, 9793, 0.99],
+    [0.97, 9845, 0.80],
+    [0.98, 9896, 0.59],
+    [0.99, 9946, 0.33]]
+
+    dr_differences = []
+    dr_pairs = []
+    for entry in twod_list_ssp_mmc:
+        knowledge_differences = []
+        efficiency_differences = []
+        # Find two DR values
+        # DR the gives the most similar total amount of memorized cards
+        # And DR the gives the most similar amount of cards memorized per hour
+        for dr_list in twod_list_dr:
+            knowledge_diff = abs(entry[-2] - dr_list[-2])
+            efficiency_diff = abs(entry[-1] - dr_list[-1])
+            knowledge_differences.append(knowledge_diff)
+            efficiency_differences.append(efficiency_diff)
+
+        closest_knowledge_dr_index = knowledge_differences.index(min(knowledge_differences))
+        closest_efficiency_dr_index = efficiency_differences.index(min(efficiency_differences))
+        closest_knowledge_dr = twod_list_dr[closest_knowledge_dr_index][0]
+        closest_efficiency_dr = twod_list_dr[closest_efficiency_dr_index][0]
+        dr_differences.append(closest_knowledge_dr - closest_efficiency_dr)
+        dr_pairs.append([closest_knowledge_dr, closest_efficiency_dr])
+
+    # Find hyperparameters that correspond to the biggest difference in the two DRs
+    max_diff_index = dr_differences.index(max(dr_differences))
+    max_diff_hyperparams = twod_list_ssp_mmc[max_diff_index]
+    max_diff_drs = dr_pairs[max_diff_index]
+    print(f'Hyperparameters that provide the biggest advantage={max_diff_hyperparams[0]}')
+    print(f'You get the total knowledge of DR={100*max_diff_drs[0]:.0f}%')
+    print(f'You get the efficiency of DR={100*max_diff_drs[1]:.0f}%')
+
+advantage_maximizer(frontier)
