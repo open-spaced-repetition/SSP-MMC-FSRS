@@ -52,6 +52,7 @@ The best result is highlighted in **bold**. Arrows indicate whether lower (↓) 
 | SSP-MMC | 777 | 2925 | 8621 | 2.95 |
 | SSP-MMC (Maximum efficiency) | 771 | **2896** | 8584 | **2.96** |
 | Memrise | 1446 | 4468 | 9458 | 2.12 |
+| Anki-SM-2 | 1784 | 5112 | 9317 | 1.82 |
 | DR=0.70 | **702** | **2838** | 8081 | 2.85 |
 | DR=0.71 | 738 | 2937 | 8167 | 2.78 |
 | DR=0.72 | 758 | 2971 | 8243 | 2.77 |
@@ -90,7 +91,7 @@ The best result is highlighted in **bold**. Arrows indicate whether lower (↓) 
 
 It may be difficult to understand whether a certain scheduling policy is better than another based on this table. Below is a visualization:
 
-<img width="1200" height="900" alt="Pareto frontier" src="https://github.com/user-attachments/assets/b8ecb6aa-1ed3-4825-894f-b198574dd4ed" />
+<img width="1200" height="900" alt="Pareto frontier" src="https://github.com/user-attachments/assets/91488a62-3928-4678-a12b-8443daca94a4" />
 
 "Balanced" roughly corresponds to "Number of memorized cards of DR=83% and efficiency of DR=72%".
 
