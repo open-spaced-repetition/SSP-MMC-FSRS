@@ -88,6 +88,14 @@ The best result is highlighted in **bold**. Arrows indicate whether lower (↓) 
 | Interval=50 | 2080 | 6311 | 9377 | 1.49 |
 | Interval=100 | 1020 | 3748 | 8658 | 2.31 |
 
+It may be difficult to understand whether a certain scheduling policy is better than another based on this table. Below is a visualization:
+
+<img width="1200" height="900" alt="Pareto frontier" src="https://github.com/user-attachments/assets/b8ecb6aa-1ed3-4825-894f-b198574dd4ed" />
+
+"Balanced" roughly corresponds to "Number of memorized cards of DR=83% and efficiency of DR=72%".
+
+Overall, it's clear that SSP-MMC outperforms fixed desired retention, which in turn outperforms fixed intervals. Surprisingly, Memrise's simple algorithm performs remarkably well. We are unsure why.
+
 ## Caveats
 
 Currently, the results are based on several assumptions and have several limitations:
