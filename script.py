@@ -817,7 +817,7 @@ if __name__ == "__main__":
     plt.savefig("./plot/cost_vs_retention.png")
     plt.close()
 
-    for fixed_interval in [3, 7, 30]:
+    for fixed_interval in [5, 10, 20, 50, 100, 200]:
         fixed_policy = create_fixed_interval_policy(fixed_interval)
         plot_simulation(fixed_policy, f"IVL={fixed_interval}")
 
