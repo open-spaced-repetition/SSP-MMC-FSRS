@@ -866,7 +866,7 @@ if __name__ == "__main__":
     print("--------------------------------")
 
     print(
-        "| Scheduling Policy | Total number of reviews (thousands) | Total number of hours | Number of memorized cards | Memorized per hour |"
+        "| Scheduling Policy | Total number of reviews (thousands)↓ | Total number of hours↓ | Number of memorized cards↑ | Memorized per hour↑ |"
     )
     print("| --- | --- | --- | --- | --- |")
 
