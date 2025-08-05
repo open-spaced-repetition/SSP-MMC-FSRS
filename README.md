@@ -26,7 +26,7 @@ Deck size = 10,000 cards, new cards per day = 10, max. reviews per day = 9,999, 
 
 The best result is highlighted in **bold**. Arrows indicate whether lower (↓) or higher (↑) values are better.
 
-### Duration of the simulation = 1825 days ( 5 years)
+### Duration of the simulation = 1825 days (5 years)
 
 | Scheduling Policy | Total number of reviews (thousands)↓ | Total number of hours↓ | Number of memorized cards↑ | Memorized per hour↑ |
 | --- | --- | --- | --- | --- |
