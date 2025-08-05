@@ -536,6 +536,94 @@ class SSPMMCSolver:
         """Get cost from cost matrix for given stability and difficulty."""
         return self.cost_matrix[self.d2i(d), self.s2i(s)]
 
+def anki_sm2_policy(stability, difficulty, prev_interval, grade, ease):
+    """
+    Anki-SM-2 scheduling policy with default parameters.
+    Returns (interval, new_ease) tuple.
+
+    Parameters based on Anki 24.11 defaults:
+    - graduating_interval = 1 day
+    - easy_interval = 4 days
+    - starting_ease = 2.5
+    - easy_bonus = 1.3
+    - hard_interval = 1.2
+    - new_interval = 0 (for Again)
+    - interval_multiplier = 1.0
+    """
+
+    # Anki-SM-2 default parameters
+    graduating_interval = 1.0
+    easy_interval = 4.0
+    easy_bonus = 1.3
+    hard_interval_factor = 1.2
+    new_interval = 0.0
+    interval_multiplier = 1.0
+
+    # Update ease based on rating
+    new_ease = torch.where(
+        grade == 1,  # Again
+        ease - 0.2,
+        torch.where(
+            grade == 2,  # Hard
+            ease - 0.15,
+            torch.where(
+                grade == 4,  # Easy
+                ease + 0.15,
+                ease  # Good: no change
+            )
+        )
+    )
+    new_ease = torch.clamp(new_ease, 1.3, 5.5)
+
+    # Handle new cards (prev_interval = 0)
+    is_new_card = prev_interval == 0
+
+    # For new cards: use graduating interval or easy interval based on rating
+    new_card_interval = torch.where(
+        grade < 4,
+        torch.full_like(prev_interval, graduating_interval),
+        torch.full_like(prev_interval, easy_interval)
+    )
+
+    # For existing cards: calculate based on Anki-SM-2 algorithm
+    # Assume reviews happen on time for simplicity
+    days_late = torch.zeros_like(prev_interval)
+    elapsed = prev_interval + days_late
+
+    # Calculate new interval based on rating using the updated ease
+    existing_card_interval = torch.where(
+        grade == 1,  # Again
+        prev_interval * new_interval,  # Reset (will be clamped to 1 minimum)
+        torch.where(
+            grade == 2,  # Hard
+            torch.maximum(elapsed * hard_interval_factor, prev_interval * hard_interval_factor / 2),
+            torch.where(
+                grade == 4,  # Easy
+                torch.maximum(elapsed * new_ease, prev_interval) * easy_bonus,
+                # Good (grade == 3)
+                torch.maximum(elapsed * new_ease, prev_interval)
+            )
+        )
+    )
+
+    # Apply interval multiplier
+    existing_card_interval = existing_card_interval * interval_multiplier
+
+    # Choose between new card and existing card intervals
+    result_interval = torch.where(
+        is_new_card,
+        new_card_interval,
+        existing_card_interval
+    )
+
+    # Clamp to minimum of 1 day
+    result_interval = torch.maximum(torch.ones_like(result_interval), result_interval)
+
+    # Apply s_max awareness
+    final_interval = s_max_aware_fixed_interval(stability, difficulty, result_interval, -w[20])
+
+    return final_interval, new_ease
+
 def memrise_policy(stability, difficulty, prev_interval, grade):
     """
     Vectorized version of fixed sequence policy with closest interval matching
@@ -579,7 +667,7 @@ def memrise_policy(stability, difficulty, prev_interval, grade):
             grade == 1,  # Again
             torch.ones_like(prev_interval),  # Reset to 1 day
             s_max_aware_fixed_interval(stability, difficulty, next_intervals, -w[20])
-            # Hard/Good/Easy: advance from closest sequence position
+            # Hard/Good/Easy: advance from the closest sequence position
         )
     )
 
@@ -746,6 +834,8 @@ if __name__ == "__main__":
             plot_simulation(ssp_mmc_policy, "SSP-MMC")
 
     plot_simulation(memrise_policy, "Memrise")
+
+    plot_simulation(anki_sm2_policy, "Anki-SM-2")
 
     def optimal_policy_for_rating_sequence(rating_sequence: list[int]):
         s_list = []
@@ -1022,12 +1112,12 @@ if __name__ == "__main__":
 
     # Annotate fixed intervals
     for n in range(len(fixed_intervals_x)):
-        border_aware_text(x_min, x_max, y_min, y_max, fixed_intervals_x[n],  fixed_intervals_y[n],
+        border_aware_text(x_min, x_max, y_min, y_max, fixed_intervals_x[n], fixed_intervals_y[n],
                           f'{fixed_intervals_titles[n]}', fontsize=11)
 
     # Annotate other policies
     for n in range(len(other_x)):
-        border_aware_text(x_min, x_max, y_min, y_max, other_x[n],  other_y[n],
+        border_aware_text(x_min, x_max, y_min, y_max, other_x[n], other_y[n],
                           f'{other_titles[n]}', fontsize=11)
 
     plt.xlabel('Total number of memorized cards\n(higher=better)', fontsize=18)
