@@ -143,8 +143,8 @@ def multi_objective_function(param_dict):
         return optimal_interval
 
     review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(ssp_mmc_policy)
-    # reviews_total = review_cnt_per_day.sum()  # total number of reviews
-    time_total = cost_per_day.sum() / 3600  # total time spent on reviews, hours
+    # reviews_total = review_cnt_per_day.sum() / PARALLEL  # total number of reviews
+    time_total = cost_per_day.sum() / (3600 * PARALLEL)  # total time spent on reviews, hours
     memorized_total = memorized_cnt_per_day[:, -1]
     memorized_total_mean = np.mean(memorized_total)  # number of memorized cards at the end
     memorized_total_sem = np.std(memorized_total) / np.sqrt(len(memorized_total))
