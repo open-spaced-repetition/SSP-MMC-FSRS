@@ -9,8 +9,8 @@ SSP-MMC-FSRS is an extended version of [SSP-MMC](https://github.com/maimemo/SSP-
 Scheduling Policy: how the intervals are calculated.
 
 - SSP-MMC: the intervals are chosen so that the "cost" (in minutes of studying) is minimized. The tradeoff between time efficiency and the total knowledge (number of cards memorized) can be controlled with hyperparameters.
-- Fixed DR: fixed desired retention, meaning that the intervals correspond to the desired probability of recall, for example, 90%.
-- Fixed intervals: intervals are always the same and do not depend on the rating (Again/Hard/Good/Easy) or anything else.
+- Fixed DR: fixed desired retention, meaning that the intervals correspond to the desired probability of recall, for example, 90%. This is how FSRS currently schedules reviews in Anki.
+- Fixed intervals: intervals are always the same and do not depend on the rating (Again/Hard/Good/Easy) or anything else. The units are days.
 - Memrise: the following sequence of intervals, in days: 1 -> 6 -> 12 -> 48 -> 96 -> 180. If the user presses Again, the interval is reset to 1, and sequence starts all over again. If the user presses Hard, Good or Easy, the next interval in the sequence is used.
 - Anki-SM-2: Anki's version of SM-2. It's a relatively simple algorithm that keeps track of "ease" (which is based on ratings) and the length of the next interval is equal to the length of the last interval times ease; plus some bonuses and penalties related to Hard; plus some extra modifiers.
 
