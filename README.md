@@ -102,7 +102,7 @@ Overall, it's clear that SSP-MMC outperforms fixed desired retention, which in t
 
 Currently, the results are based on several assumptions and have several limitations:
 
-1) FSRS is perfectly accurate at predicting the probability of recall
-2) There are no same-day reviews, interval lengths must be at least one day
+1) This is based on the assumption that FSRS is perfectly accurate at predicting the probability of recall
+2) There are no same-day reviews, intervals must be at least one day long
 3) There is no [fuzz](https://docs.ankiweb.net/studying.html#fuzz-factor)
-4) This is based on default FSRS parameters and default review times
+4) This is based on default FSRS parameters and default review times, but of course parameters and review times vary across different users
