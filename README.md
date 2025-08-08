@@ -27,7 +27,7 @@ The probability that a card is recalled successfully is estimated by FSRS.
 
 The reason why we look at average knowledge (number of memorized cards, aka sum of probabilities of recall of each card) across all days rather than only looking at knowledge at the end of the simulation is because the latter can be cheated. Imagine the following algorithm (duration of the simulation=5 years): first, it assigns an interval equal to 4 years and 11 months to every card. Then, during the last month, it assigns an interval equal to a few days to every card. The number of cards memorized *at the end* will be very high despite the fact that on *most* days knowledge was extremely low.
 
-Deck size = 10000 cards, new cards per day = 10, max. reviews per day = 9999, max. studying time per day = 360 minutes.
+Deck size = 10000 cards, new cards per day = 10, max. reviews per day = 9999, max. studying time per day = 12 hours.
 
 The best result is highlighted in **bold**. Arrows indicate whether lower (↓) or higher (↑) values are better.
 
