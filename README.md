@@ -58,7 +58,7 @@ The best result is highlighted in **bold**. Arrows indicate whether lower (↓) 
 | SSP-MMC-FSRS | 53.3 | 12.0 | 6295 | 31.3 |
 | SSP-MMC-FSRS | 53.4 | 12.0 | 6297 | 31.3 |
 | SSP-MMC-FSRS | 52.8 | 11.9 | 6264 | 31.3 |
-| SSP-MMC-FSRS (Maximum efficiency) | 50.2 | 11.7 | 6163 | **31.6** |
+| SSP-MMC-FSRS (Maximum efficiency) | 50.2 | **11.7** | 6163 | **31.6** |
 | Memrise | 99.1 | 18.4 | 6760 | 24.1 |
 | Anki-SM-2 | 122.2 | 21.0 | 6821 | 19.8 |
 | DR=0.70 | **48.1** | **11.7** | 5912 | 31.0 |
