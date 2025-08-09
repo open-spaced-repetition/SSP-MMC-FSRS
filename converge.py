@@ -10,7 +10,7 @@ from tqdm import tqdm  # Optional: for progress bar
 
 from script import SSPMMCSolver
 
-simulator_config_file = Path("C:\\Users\\Andrew\\PycharmProjects\\pythonProject\\SSP-MMC-FSRS-main\\button_usage.jsonl")
+simulator_config_file = Path("../Anki-button-usage/button_usage.jsonl")
 simulator_configs = list(
     map(lambda x: json.loads(x), open(simulator_config_file).readlines())
 )
@@ -19,7 +19,7 @@ simulator_configs = {
     for config in map(lambda x: json.loads(x), open(simulator_config_file).readlines())
 }
 
-parameters_file = Path("C:\\Users\\Andrew\\PycharmProjects\\pythonProject\\SSP-MMC-FSRS-main\\FSRS-rs.jsonl")
+parameters_file = Path("../srs-benchmark/result/FSRS-rs.jsonl")
 parameters = list(map(lambda x: json.loads(x), open(parameters_file).readlines()))
 parameters = {
     param["user"]: param
