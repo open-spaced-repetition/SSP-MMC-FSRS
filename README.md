@@ -58,10 +58,10 @@ The best result is highlighted in **bold**. Arrows indicate whether lower (↓) 
 | SSP-MMC-FSRS | 53.3 | 12.0 | 6295 | 31.3 |
 | SSP-MMC-FSRS | 53.4 | 12.0 | 6297 | 31.3 |
 | SSP-MMC-FSRS | 52.8 | 11.9 | 6264 | 31.3 |
-| SSP-MMC-FSRS (Maximum efficiency) | 50.2 | 11.7 | 6163 | 31.6 |
+| SSP-MMC-FSRS (Maximum efficiency) | 50.2 | 11.7 | 6163 | **31.6** |
 | Memrise | 99.1 | 18.4 | 6760 | 24.1 |
 | Anki-SM-2 | 122.2 | 21.0 | 6821 | 19.8 |
-| DR=0.70 | 48.1 | 11.7 | 5912 | 31.0 |
+| DR=0.70 | **48.1** | **11.7** | 5912 | 31.0 |
 | DR=0.71 | 50.5 | 12.1 | 5966 | 30.3 |
 | DR=0.72 | 51.9 | 12.2 | 6020 | 30.3 |
 | DR=0.73 | 53.9 | 12.5 | 6073 | 29.7 |
@@ -91,7 +91,7 @@ The best result is highlighted in **bold**. Arrows indicate whether lower (↓) 
 | DR=0.97 | 342.1 | 50.4 | 7143 | 9.0 |
 | DR=0.98 | 482.5 | 69.3 | 7179 | 6.7 |
 | DR=0.99 | 892.0 | 124.5 | 7214 | 3.8 |
-| Interval=7 | 1034.4 | 144.9 | 7175 | 4.2 |
+| Interval=7 | 1034.4 | 144.9 | **7175** | 4.2 |
 | Interval=14 | 515.9 | 75.8 | 7070 | 7.8 |
 | Interval=20 | 360.3 | 55.2 | 6970 | 10.4 |
 | Interval=30 | 239.3 | 39.1 | 6800 | 14.1 |
