@@ -2,15 +2,15 @@ import logging
 import os
 import signal
 import warnings
+import time
 
 import numpy as np
 import torch
 from ax.service.ax_client import AxClient
 from ax.service.utils.instantiation import ObjectiveProperties
-from ax.service.utils.report_utils import exp_to_df
 from colorama import Fore, Style
 
-from script import SSPMMCSolver
+from script import SSPMMCSolver, LEARN_SPAN, LEARN_LIMIT_PER_DAY, REVIEW_LIMIT_PER_DAY, DECK_SIZE, PARALLEL, S_MAX, w
 from simulator import (
     DEFAULT_REVIEW_COSTS,
     DEFAULT_FIRST_RATING_PROB,
@@ -51,49 +51,7 @@ forget_rating_offset = DEFAULT_FORGET_RATING_OFFSET
 forget_session_len = DEFAULT_FORGET_SESSION_LEN
 
 
-np.random.seed(42)
-
-S_MIN = 0.1
-S_MAX = 365 * 25
-SHORT_STEP = np.log(2) / 20
-LONG_STEP = 5
-
-D_MIN = 1
-D_MAX = 10
-D_EPS = 0.1
-
-R_MIN = 0.70
-R_MAX = 0.99
-R_EPS = 0.01
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-PARALLEL = 8
-
-LEARN_SPAN = 365 * 5
-
-w = [
-    0.212,
-    1.2931,
-    2.3065,
-    8.2956,
-    6.4133,
-    0.8334,
-    3.0194,
-    0.001,
-    1.8722,
-    0.1666,
-    0.796,
-    1.4835,
-    0.0614,
-    0.2629,
-    1.6483,
-    0.6014,
-    1.8729,
-    0.5425,
-    0.0912,
-    0.0658,
-    0.1542
-]
-
 
 def simulate_policy(policy):
     (
@@ -106,10 +64,12 @@ def simulate_policy(policy):
         w=w,
         policy=policy,
         device=DEVICE,
-        deck_size=10000,
+        deck_size=DECK_SIZE,
         learn_span=LEARN_SPAN,
-        s_max=S_MAX,
-    )
+        learn_limit_perday=LEARN_LIMIT_PER_DAY,
+        review_limit_perday=REVIEW_LIMIT_PER_DAY,
+        max_cost_perday=86400 / 2,  # 12 hours
+        s_max=S_MAX)
 
     return review_cnt_per_day, cost_per_day, memorized_cnt_per_day
 
@@ -143,47 +103,54 @@ def multi_objective_function(param_dict):
         return optimal_interval
 
     review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(ssp_mmc_policy)
-    # reviews_total = review_cnt_per_day.sum() / PARALLEL  # total number of reviews
-    time_total = cost_per_day.sum() / (3600 * PARALLEL)  # total time spent on reviews, hours
-    memorized_total = memorized_cnt_per_day[:, -1]
-    memorized_total_mean = np.mean(memorized_total)  # number of memorized cards at the end
-    memorized_total_sem = np.std(memorized_total) / np.sqrt(len(memorized_total))
 
-    memorized_per_hour = memorized_total / time_total
-    memorized_per_hour_mean = np.mean(memorized_per_hour) # efficiency
-    memorized_per_hour_sem = np.std(memorized_per_hour) / np.sqrt(len(memorized_per_hour))
+    # reviews_average = review_cnt_per_day.mean()  # average number of reviews per day
+
+    # time_average = cost_per_day.mean() / 60  # average time spent on reviews per day, minutes
+
+    accum_cost = np.cumsum(cost_per_day, axis=-1)
+    accum_time_average = accum_cost.mean() / 3600  # accumulated average time spent on reviews, hours
+
+    memorized_average = memorized_cnt_per_day.mean()  # average of memorized cards on each day
+
+    avg_accum_memorized_per_hour = memorized_average / accum_time_average  # efficiency
 
     print('')
     print(param_dict)
-    print(f'Memorized={memorized_total_mean:.1f}±{memorized_total_sem:.1f} cards')
-    print(f'Average memorized/hour={memorized_per_hour_mean:.2f}±{memorized_per_hour_sem:.2f} cards/hour')
+    print(f'Average memorized={memorized_average:.0f} cards')
+    print(f'Average memorized/hours={avg_accum_memorized_per_hour:.1f} cards/hour')
     print('')
-    return {"knowledge": (memorized_total_mean, memorized_total_sem),
-            "knowledge_per_hour": (memorized_per_hour_mean, memorized_per_hour_sem)}
+    return {'average_knowledge': (memorized_average, None),
+            'average_knowledge_per_hour': (avg_accum_memorized_per_hour, None)}
 
 
 # Custom loop
-total_trials = 300
+total_trials = 500
 ax_seed = S_MAX
 
 parameters = [
+    # S ratio transformation
     {'name': 'a0', 'type': 'choice', 'values': ['no_log', 'log']},
+    # S ratio power
     {'name': 'a1', 'type': 'range', 'bounds': [0.1, 10], 'log_scale': True, 'value_type': 'float', 'digits': 2},
-    {'name': 'a2', 'type': 'range', 'bounds': [-1, 1], 'log_scale': False, 'value_type': 'float', 'digits': 2},
-    {'name': 'a3', 'type': 'range', 'bounds': [-1, 1], 'log_scale': False, 'value_type': 'float', 'digits': 2},
-    {'name': 'a4', 'type': 'range', 'bounds': [-1, 1], 'log_scale': False, 'value_type': 'float', 'digits': 2},
-    {'name': 'a5', 'type': 'range', 'bounds': [-1, 1], 'log_scale': False, 'value_type': 'float', 'digits': 2},
+    # D ratio power
+    {'name': 'a2', 'type': 'range', 'bounds': [0.1, 10], 'log_scale': True, 'value_type': 'float', 'digits': 2},
+    # constants
+    {'name': 'a3', 'type': 'range', 'bounds': [-5, 5], 'log_scale': False, 'value_type': 'float', 'digits': 2},
+    {'name': 'a4', 'type': 'range', 'bounds': [-5, 5], 'log_scale': False, 'value_type': 'float', 'digits': 2},
+    # coefficients for modifying cost based on S
+    {'name': 'a5', 'type': 'range', 'bounds': [-5, 5], 'log_scale': False, 'value_type': 'float', 'digits': 2},
+    {'name': 'a6', 'type': 'range', 'bounds': [-5, 5], 'log_scale': False, 'value_type': 'float', 'digits': 2},
+    # coefficients for modifying cost based on D
+    {'name': 'a7', 'type': 'range', 'bounds': [-5, 5], 'log_scale': False, 'value_type': 'float', 'digits': 2},
+    {'name': 'a8', 'type': 'range', 'bounds': [-5, 5], 'log_scale': False, 'value_type': 'float', 'digits': 2},
 ]
 
-# Ensure that the costs are positive
-# a2 and a3 are for lapses, a4 and a5 are for successes
-# parameter_constraints = ["a2 + a3 >= 0.0001", "a4 + a5 >= 0.0001"]
+# Maximize average knowledge on each day and knowledge acquisition rate
+objectives = {'average_knowledge': ObjectiveProperties(minimize=False),
+              'average_knowledge_per_hour': ObjectiveProperties(minimize=False)}
 
-# Maximize total knowledge at the end and knowledge acquisition rate
-objectives = {'knowledge': ObjectiveProperties(minimize=False),
-              'knowledge_per_hour': ObjectiveProperties(minimize=False)}
-
-checkpoint_filename = os.path.abspath(f'SSP-MMC_Smax={ax_seed}_params={len(parameters)}.json')
+checkpoint_filename = os.path.abspath(f'SSP-MMC_Smax={ax_seed}_params={len(parameters)}_avg.json')
 
 # Check if the checkpoint file exists and is valid
 if os.path.isfile(checkpoint_filename):
@@ -238,44 +205,44 @@ else:
     completed_trials = 0
     ax.save_to_json_file(checkpoint_filename)
 
-
-def print_pareto(frontier, calc_knee=True):
+def pareto(frontier, calc_knee=False):
     print('')
     print('Pareto optimal points:')
     twod_list = []
     for number, dictionary in list(frontier.items()):
         params = dictionary[0]
-        a0, a1, a2, a3, a4, a5 = params['a0'], params['a1'], params['a2'], params['a3'], params['a4'], \
-            params['a5']
-        knowledge, knowledge_per_hour = dictionary[1][0]['knowledge'], dictionary[1][0]['knowledge_per_hour']
+        a0, a1, a2, a3, a4, a5, a6, a7, a8 = params['a0'], params['a1'], params['a2'], params['a3'], params['a4'], \
+            params['a5'], params['a6'], params['a7'], params['a8']
+        average_knowledge, average_knowledge_per_hour = dictionary[1][0]['average_knowledge'], dictionary[1][0]['average_knowledge_per_hour']
 
-        twod_list.append([a0, a1, a2, a3, a4, a5, knowledge, knowledge_per_hour])
+        twod_list.append([a0, a1, a2, a3, a4, a5, a6, a7, a8, average_knowledge, average_knowledge_per_hour])
 
-    if calc_knee:
-        x = []
-        y = []
-        hyperparams = []
+    # For finding the knee point
+    x = []
+    y = []
+    hyperparams = []
 
-    twod_list = sorted(twod_list, key=lambda x: x[-1])  # sort by knowledge_per_hour
+    twod_list = sorted(twod_list, key=lambda x: x[-1])  # sort by average_knowledge_per_hour
     for minilist in twod_list:
-        a0, a1, a2, a3, a4, a5, knowledge, knowledge_per_hour = \
-            minilist[0], minilist[1], minilist[2], minilist[3], minilist[4], minilist[5], minilist[6], minilist[7]
-        param_dict = {'a0': a0, 'a1': a1, 'a2': a2, 'a3': a3, 'a4': a4, 'a5': a5}
-        print(f'    parameters={param_dict}, objectives=({knowledge:.0f}, {knowledge_per_hour:.2f})')
+        a0, a1, a2, a3, a4, a5, a6, a7, a8, average_knowledge, average_knowledge_per_hour = \
+            minilist[0], minilist[1], minilist[2], minilist[3], minilist[4], minilist[5], minilist[6], minilist[7], \
+                minilist[8], minilist[9], minilist[10]
+        param_dict = {'a0': a0, 'a1': a1, 'a2': a2, 'a3': a3, 'a4': a4, 'a5': a5, 'a6': a6, 'a7': a7, 'a8': a8}
+        print(f'    parameters={param_dict}, objectives=({average_knowledge:.0f}, {average_knowledge_per_hour:.1f})')
 
         if calc_knee:
-            x.append(knowledge)
-            y.append(knowledge_per_hour)
+            x.append(average_knowledge)
+            y.append(average_knowledge_per_hour)
             hyperparams.append(param_dict)
 
-    if calc_knee:
+    if len(x) > 2 and calc_knee:
         # Knee point calculation
         norm_x = [(x_i - min(x)) / (max(x) - min(x)) for x_i in x]
         norm_y = [(y_i - min(y)) / (max(y) - min(y)) for y_i in y]
-        assert max(norm_x) == 1
-        assert min(norm_x) == 0
-        assert max(norm_y) == 1
-        assert min(norm_y) == 0
+        assert max(norm_x) == 1, f'{max(norm_x)}'
+        assert min(norm_x) == 0, f'{min(norm_x)}'
+        assert max(norm_y) == 1, f'{max(norm_y)}'
+        assert min(norm_y) == 0, f'{min(norm_y)}'
 
         distances = []
         for norm_x_i, norm_y_i in zip(norm_x, norm_y):
@@ -290,102 +257,86 @@ def print_pareto(frontier, calc_knee=True):
 
     print('')
 
-
-printed_flag = False
-if completed_trials < total_trials:
-    for i in range(completed_trials+1, total_trials+1):
-        # Print results when loading from a checkpoint
-        if loaded_flag and not printed_flag:
-            # Get experiment data
-            experiment_data = exp_to_df(ax.experiment)
-            # Get Pareto frontier
-            frontier = ax.get_pareto_optimal_parameters()
-            print_pareto(frontier)
-            printed_flag = True
-
-        # Print results after every 5 trials
-        elif i%5 == 0:
-            # Get experiment data
-            experiment_data = exp_to_df(ax.experiment)
-            # Get Pareto frontier
-            frontier = ax.get_pareto_optimal_parameters()
-            print_pareto(frontier)
-
-        print(f'Starting trial {i}/{total_trials}')
-        parameters, trial_index = ax.get_next_trial()
-        torch.cuda.empty_cache()  # just in case
-        ax.complete_trial(trial_index=trial_index, raw_data=multi_objective_function(parameters))
-
-        # Backup after each trial
-        with DelayedKeyboardInterrupt():
-            ax.save_to_json_file(checkpoint_filename)
-
-# Get Pareto frontier
-frontier = ax.get_pareto_optimal_parameters()
-print_pareto(frontier)
-
 # Advantage-over-fixed-DR maximizer
-def advantage_maximizer(frontier):
+# And it also has a thingy for proposing candidate hyperparameters
+# I decided not to make a separate function for that. Maybe I should
+# And I also added a way to print hyperparameters in a format that can be easily copy-pasted into script.py
+def advantage_maximizer(frontier, propose_candidate=False, print_for_script=False):
     twod_list_ssp_mmc = []
-    
-    # Anything below this is not good enough
-    knowledge_threshold = 8900
 
     for number, dictionary in list(frontier.items()):
         params = dictionary[0]
-        a0, a1, a2, a3, a4, a5 = params['a0'], params['a1'], params['a2'], params['a3'], params['a4'], \
-            params['a5']
-        knowledge, knowledge_per_hour = dictionary[1][0]['knowledge'], dictionary[1][0]['knowledge_per_hour']
+        a0, a1, a2, a3, a4, a5, a6, a7, a8 = params['a0'], params['a1'], params['a2'], params['a3'], params['a4'], \
+            params['a5'], params['a6'], params['a7'], params['a8']
+        average_knowledge, average_knowledge_per_hour = dictionary[1][0]['average_knowledge'], dictionary[1][0][
+            'average_knowledge_per_hour']
 
-        if knowledge >= knowledge_threshold:
-            twod_list_ssp_mmc.append([{'a0': a0, 'a1': a1, 'a2': a2, 'a3': a3, 'a4': a4, 'a5': a5}, knowledge, knowledge_per_hour])
+        twod_list_ssp_mmc.append([{'a0': a0, 'a1': a1, 'a2': a2, 'a3': a3, 'a4': a4, 'a5': a5, 'a6': a6, 'a7': a7,
+                                   'a8': a8},
+                                  average_knowledge, average_knowledge_per_hour])
+
+    twod_list_ssp_mmc = sorted(twod_list_ssp_mmc, key=lambda x: x[1])  # sort by average_knowledge_per_hour
 
     # I decided to hard-code it because calculating this every time is slow
+    # [DR, memorized cards (average), memorized per hour (average)]
     twod_list_dr = [
-    [0.70, 8081, 2.85],
-    [0.71, 8167, 2.78],
-    [0.72, 8243, 2.77],
-    [0.73, 8299, 2.73],
-    [0.74, 8381, 2.68],
-    [0.75, 8482, 2.66],
-    [0.76, 8567, 2.63],
-    [0.77, 8641, 2.57],
-    [0.78, 8729, 2.53],
-    [0.79, 8785, 2.47],
-    [0.80, 8834, 2.44],
-    [0.81, 8905, 2.40],
-    [0.82, 8965, 2.35],
-    [0.83, 9035, 2.30],
-    [0.84, 9109, 2.23],
-    [0.85, 9177, 2.18],
-    [0.86, 9238, 2.12],
-    [0.87, 9287, 2.04],
-    [0.88, 9349, 1.95],
-    [0.89, 9412, 1.86],
-    [0.90, 9465, 1.78],
-    [0.91, 9524, 1.66],
-    [0.92, 9579, 1.58],
-    [0.93, 9635, 1.45],
-    [0.94, 9686, 1.31],
-    [0.95, 9741, 1.16],
-    [0.96, 9793, 0.99],
-    [0.97, 9845, 0.80],
-    [0.98, 9896, 0.59],
-    [0.99, 9946, 0.33]]
+        [0.70, 5912, 31.0],
+        [0.71, 5966, 30.3],
+        [0.72, 6020, 30.3],
+        [0.73, 6073, 29.7],
+        [0.74, 6123, 29.3],
+        [0.75, 6175, 29.0],
+        [0.76, 6231, 28.5],
+        [0.77, 6283, 28.0],
+        [0.78, 6337, 27.5],
+        [0.79, 6388, 27.0],
+        [0.80, 6437, 26.6],
+        [0.81, 6483, 26.2],
+        [0.82, 6529, 25.6],
+        [0.83, 6573, 25.0],
+        [0.84, 6619, 24.4],
+        [0.85, 6665, 23.8],
+        [0.86, 6710, 23.1],
+        [0.87, 6752, 22.3],
+        [0.88, 6792, 21.4],
+        [0.89, 6834, 20.4],
+        [0.90, 6875, 19.5],
+        [0.91, 6915, 18.3],
+        [0.92, 6954, 17.4],
+        [0.93, 6993, 16.0],
+        [0.94, 7031, 14.5],
+        [0.95, 7069, 12.9],
+        [0.96, 7106, 11.1],
+        [0.97, 7143, 9.0],
+        [0.98, 7179, 6.7],
+        [0.99, 7214, 3.8]]
 
     dr_differences = []
     dr_pairs = []
-    for entry in twod_list_ssp_mmc:
+    # Indices of SSP-MMC configurations that do not provide more knowledge AND higher efficiency than fixed DR
+    crappy_ssp_mmc_indices = []
+    for ssp_mmc_list in twod_list_ssp_mmc:
         knowledge_differences = []
         efficiency_differences = []
         # Find two DR values
         # DR the gives the most similar total amount of memorized cards
         # And DR the gives the most similar amount of cards memorized per hour
         for dr_list in twod_list_dr:
-            knowledge_diff = abs(entry[-2] - dr_list[-2])
-            efficiency_diff = abs(entry[-1] - dr_list[-1])
+            knowledge_diff = abs(ssp_mmc_list[1] - dr_list[1])
+            efficiency_diff = abs(ssp_mmc_list[2] - dr_list[2])
             knowledge_differences.append(knowledge_diff)
             efficiency_differences.append(efficiency_diff)
+
+            # Check is this SSP-MMC configuration is crappy
+            if ssp_mmc_list[1] < dr_list[1] and ssp_mmc_list[2] < dr_list[2]:
+                # Add its index to the list of crappy indices
+                index_current = twod_list_ssp_mmc.index(ssp_mmc_list)
+                if index_current not in crappy_ssp_mmc_indices:
+                    crappy_ssp_mmc_indices.append(index_current)
+
+            # print(f'DR={dr_list[0]}, average knowledge (SSP-MMC)={ssp_mmc_list[1]:.0f}, '
+            #       f'average knowledge (DR)={dr_list[1]:.0f}, efficiency(SSP-MMC)={ssp_mmc_list[2]:.2f}, '
+            #       f'efficiency(DR)={dr_list[2]:.2f}')
 
         closest_knowledge_dr_index = knowledge_differences.index(min(knowledge_differences))
         closest_efficiency_dr_index = efficiency_differences.index(min(efficiency_differences))
@@ -395,11 +346,137 @@ def advantage_maximizer(frontier):
         dr_pairs.append([closest_knowledge_dr, closest_efficiency_dr])
 
     # Find hyperparameters that correspond to the biggest difference in the two DRs
-    max_diff_index = dr_differences.index(max(dr_differences))
-    max_diff_hyperparams = twod_list_ssp_mmc[max_diff_index]
-    max_diff_drs = dr_pairs[max_diff_index]
-    print(f'Hyperparameters that provide the biggest advantage={max_diff_hyperparams[0]}')
-    print(f'You get the total knowledge of DR={100*max_diff_drs[0]:.0f}%')
-    print(f'You get the efficiency of DR={100*max_diff_drs[1]:.0f}%')
+    if max(dr_differences) <= 0:
+        pass
+    else:
+        max_diff_index = dr_differences.index(max(dr_differences))
+        max_diff_params = twod_list_ssp_mmc[max_diff_index]
+        max_diff_drs = dr_pairs[max_diff_index]
+        # Don't print if this function is called only to get the candidate
+        if not propose_candidate:
+            print(f'    Hyperparameters that provide the biggest advantage={max_diff_params[0]}')
+            print(f'    You get the average knowledge of DR={100 * max_diff_drs[0]:.0f}%')
+            print(f'    You get the efficiency of DR={100 * max_diff_drs[1]:.0f}%')
+            print('')
 
-advantage_maximizer(frontier)
+    # For printing and then copy-pasting into script.py
+    configurations = []
+    if print_for_script:
+        for dr_list in twod_list_dr:
+            # Find a configuration that is the closest to this DR in terms of knowledge
+            abs_knowledge_differences = []
+            for ssp_mmc_list in twod_list_ssp_mmc:
+                abs_knowledge_differences.append(abs(ssp_mmc_list[1] - dr_list[1]))
+
+            closest_index = abs_knowledge_differences.index(min(abs_knowledge_differences))
+            closest_params = twod_list_ssp_mmc[closest_index][0]
+
+            # It's not guaranteed to add 'Balanced', which kinda sucks
+            if closest_params == max_diff_params[0]:
+                entry = [closest_params, 'Balanced']
+            else:
+                entry = [closest_params, None]
+
+            # Do not append the same configuration more than once
+            if entry not in configurations:
+                configurations.append(entry)
+
+        configurations.reverse()
+        configurations[0][1] = 'Maximum knowledge'
+        configurations[-1][1] = 'Maximum efficiency'
+        print(f'list_of_dictionaries = {configurations}')
+
+    if propose_candidate:
+        if len(crappy_ssp_mmc_indices) == 0:  # No crappy configurations, yay!
+            print('No need to manually propose a new candidate')
+            return None
+        worse_candidate = twod_list_ssp_mmc[min(crappy_ssp_mmc_indices)][0]
+        better_candidate = twod_list_ssp_mmc[min(crappy_ssp_mmc_indices) - 1][0]
+        all_keys = better_candidate.keys()
+
+        # Average numerical values of two candidates if a0 is the same, otherwise mutate the best candidate
+        if better_candidate.get('a0') == worse_candidate.get('a0'):
+            strategy = 'average'
+        else:
+            strategy = 'mutate'
+
+        # Ad hoc thingy for enhancing the hyperparameter optimizer to make it explore hyperparameters close to
+        # good previously tested hyperparameters
+        new_candidate = {}
+        for key in all_keys:
+            # To prevent new candidates from being the same
+            np.random.seed(int(time.time()))
+            if key == 'a0':
+                # Use the value of the better candidate
+                new_candidate.update({'a0': better_candidate.get(key)})
+            else:
+                if strategy == 'average':
+                    better_param = better_candidate.get(key)
+                    worse_param = worse_candidate.get(key)
+
+                    random_weight_better = float(np.random.uniform(1.5, 4, 1))
+                    random_weight_worse = float(np.random.uniform(0.7, 1, 1))
+
+                    # Assign more weight to the parameter from the better candidate
+                    w_avg_param = (random_weight_better * better_param + random_weight_worse * worse_param) \
+                                  / (random_weight_better + random_weight_worse)
+                    new_candidate.update({key: round(w_avg_param, 2)})
+                elif strategy == 'mutate':
+                    better_param = better_candidate.get(key)
+
+                    mutation = float(np.random.normal(0, 0.1, 1))
+
+                    # Apply parameter-specific clamps
+                    if key in ['a1', 'a2']:
+                        new_param = max(min(round(better_param * (1 + mutation), 2), 10.0), 0.1)
+                    else:
+                        new_param = max(min(round(better_param * (1 + mutation), 2), 5.0), -5.0)
+                    new_candidate.update({key: new_param})
+                else:
+                    raise Exception('Unknown candidate generation strategy')
+
+        print(f'Manually proposed new candidate: {new_candidate}')
+        return new_candidate
+
+printed_flag = False
+if completed_trials < total_trials:
+    for i in range(completed_trials, total_trials):
+        # Print results when loading from a checkpoint
+        if loaded_flag and not printed_flag:
+            # Get Pareto frontier
+            frontier = ax.get_pareto_optimal_parameters()
+            pareto(frontier)
+            advantage_maximizer(frontier)
+            printed_flag = True
+
+        # Print results after every 5 trials
+        elif i > 0 and i%5 == 0:
+            # Get Pareto frontier
+            frontier = ax.get_pareto_optimal_parameters()
+            pareto(frontier)
+            advantage_maximizer(frontier)
+
+        print(f'Starting trial {i}/{total_trials}')
+        # Manually propose candidates sometimes, for better exploration
+        if i >= 40 and i%10 == 0:
+            frontier = ax.get_pareto_optimal_parameters()
+            parameters = advantage_maximizer(frontier, propose_candidate=True)
+            if parameters is not None:
+                trial_indices = ax.attach_trial(parameters=parameters)
+                trial_index = trial_indices[1]
+            else:
+                parameters, trial_index = ax.get_next_trial()
+        else:
+            parameters, trial_index = ax.get_next_trial()
+
+        torch.cuda.empty_cache()  # just in case
+        ax.complete_trial(trial_index=trial_index, raw_data=multi_objective_function(parameters))
+
+        # Backup after each trial
+        with DelayedKeyboardInterrupt():
+            ax.save_to_json_file(checkpoint_filename)
+
+# Get Pareto frontier
+frontier = ax.get_pareto_optimal_parameters()
+pareto(frontier)
+advantage_maximizer(frontier, print_for_script=True)
