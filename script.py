@@ -60,7 +60,7 @@ elif simulation_type == 'lim_time_unlim_reviews':
     LEARN_LIMIT_PER_DAY = 9999
     MAX_STUDYING_TIME_PER_DAY = 3600  # one hour
 else:
-    raise Exception('Known simulation type')
+    raise Exception('Unknown simulation type')
 
 w = [
     0.212,
