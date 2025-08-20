@@ -1,7 +1,9 @@
 import time
+
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import matplotlib.pyplot as plt
+
 from simulator import (
     DEFAULT_REVIEW_COSTS,
     DEFAULT_FIRST_RATING_PROB,
@@ -26,8 +28,10 @@ first_session_lens = DEFAULT_FIRST_SESSION_LENS
 forget_rating_offset = DEFAULT_FORGET_RATING_OFFSET
 forget_session_len = DEFAULT_FORGET_SESSION_LEN
 
+np.random.seed(42)
+
 S_MIN = 0.1
-S_MAX = 365 * 3
+S_MAX = 365 * 25
 SHORT_STEP = np.log(2) / 20
 LONG_STEP = 5
 
@@ -36,12 +40,27 @@ D_MAX = 10
 D_EPS = 0.1
 
 R_MIN = 0.70
-R_MAX = 0.97
+R_MAX = 0.99
 R_EPS = 0.01
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 PARALLEL = 100
 
-COST_MAX = 1000
+COST_MAX = 1_000_000
+LEARN_SPAN = 365 * 5
+REVIEW_LIMIT_PER_DAY = 9999
+DECK_SIZE = 10_000
+
+# Limited time, unlimited reviews OR unlimited time, limited reviews
+simulation_type = 'unlim_time_lim_reviews'  # 'lim_time_unlim_reviews'
+
+if simulation_type == 'unlim_time_lim_reviews':
+    LEARN_LIMIT_PER_DAY = 10
+    MAX_STUDYING_TIME_PER_DAY = 86400 / 2  # 12 hours
+elif simulation_type == 'lim_time_unlim_reviews':
+    LEARN_LIMIT_PER_DAY = 9999
+    MAX_STUDYING_TIME_PER_DAY = 3600  # one hour
+else:
+    raise Exception('Unknown simulation type')
 
 w = [
     0.212,
@@ -74,7 +93,7 @@ def bellman_solver(
     transitions_np: list[np.array],
     transition_probs_np: list[np.array],
     costs_np: np.array,
-    discount_factor=1.0,
+    discount_factor=0.97,
     device=DEVICE,
 ):
     S, D, R = costs_np[0].shape
@@ -116,8 +135,8 @@ def bellman_solver(
             cost_diff = torch.abs(optimal_value - state).sum().item()
             state = optimal_value
 
-            if it % 100 == 0:
-                print(f"it: {it}, cost diff: {cost_diff}")
+            # if it % 100 == 0:
+            #     print(f"it: {it}, cost diff: {cost_diff}")
 
     print(f"Done. it: {it}, cost diff: {cost_diff}")
     return state.cpu().numpy(), optimal_action.cpu().numpy()
@@ -392,7 +411,7 @@ class SSPMMCSolver:
             self.s_state, self.d_state, self.r_state
         )
 
-    def solve(self, n_iter=10000, verbose=True):
+    def solve(self, hyperparams, n_iter=100_000):
         """Solve the SSP-MMC problem using value iteration."""
         # Initial setup
         ivl_mesh = next_interval(
@@ -406,7 +425,6 @@ class SSPMMCSolver:
         transition_probs = []
         costs = []
 
-        # Again case
         next_s_again = self.stability_short_term(
             self.stability_after_failure(
                 self.s_state_mesh_3d, self.d_state_mesh_3d, self.r_state_mesh_3d
@@ -417,7 +435,35 @@ class SSPMMCSolver:
             np.stack([self.d2i(next_d_again), self.s2i(next_s_again)], axis=-1)
         )
         transition_probs.append(1.0 - self.r_state_mesh_3d)
-        costs.append(zeros + self.review_costs[0])
+
+        # Hyperparameters that affect the calculation of costs
+        a0, a1, a2, a3, a4, a5, a6, a7, a8 = hyperparams.values()
+
+        # Sanity check
+        assert type(a0) == str
+        assert a0 in ['no_log', 'log']
+        assert a1 > 0
+        assert a2 > 0
+
+        if a0 == 'log':  # hyperparameter
+            stability_ratio = np.log1p(self.s_state_mesh_3d) / np.log1p(self.s_max)
+        else:
+            stability_ratio = self.s_state_mesh_3d / self.s_max
+
+        difficulty_ratio = (self.d_state_mesh_3d - 1) / 10
+
+        stability_modifier = np.power(stability_ratio, a1)  # hyperparameter
+        difficulty_modifier = np.power(difficulty_ratio, a2)  # hyperparameter
+
+        # Sanity check
+        assert np.max(stability_modifier) <= 1, f'max={np.max(stability_modifier)}'
+        assert np.min(stability_modifier) >= 0, f'min={np.min(stability_modifier)}'
+        assert np.max(difficulty_modifier) <= 1, f'max={np.max(difficulty_modifier)}'
+        assert np.min(difficulty_modifier) >= 0, f'min={np.min(difficulty_modifier)}'
+
+        failure_cost = self.review_costs[0] * (a3 + a5 * stability_modifier + a7 * difficulty_modifier)  # three hyperparameters
+
+        costs.append(failure_cost)
 
         # Calculate costs for each rating
         for i, (g, review_cost) in enumerate(zip([2, 3, 4], self.review_costs[1:])):
@@ -427,11 +473,13 @@ class SSPMMCSolver:
             next_d = self.next_d(self.d_state_mesh_3d, g)
             transitions.append(np.stack([self.d2i(next_d), self.s2i(next_s)], axis=-1))
             transition_probs.append(self.r_state_mesh_3d * self.review_rating_prob[i])
-            costs.append(zeros + review_cost)
 
-        assert len(transitions) == len(transition_probs) and len(transitions) == len(
-            costs
-        )
+            success_cost = review_cost * (a4 + a6 * stability_modifier + a8 * difficulty_modifier)  # three hyperparameters
+
+            costs.append(zeros + success_cost)
+
+        assert len(transitions) == len(transition_probs) and len(transitions) == len(costs)
+
         self.cost_matrix, optimal_r_indices = bellman_solver(
             n_iter, self.cost_matrix, transitions, transition_probs, costs
         )
@@ -443,7 +491,7 @@ class SSPMMCSolver:
         ]
         return self.cost_matrix, self.retention_matrix
 
-    def _evaluate_policy(self, n_iter=10000):
+    def _evaluate_policy(self, n_iter=100_000):
         """Evaluate the cost and retention for a given r_state_mesh_2d."""
         i = 0
         cost_diff = COST_MAX
@@ -493,7 +541,7 @@ class SSPMMCSolver:
             i += 1
         return self.cost_matrix, self.r_state_mesh_2d
 
-    def evaluate_r_threshold(self, r_threshold, n_iter=10000):
+    def evaluate_r_threshold(self, r_threshold, n_iter=100_000):
         """Evaluate the cost and retention for a given r threshold."""
         self.r_state_mesh_2d = r_threshold * np.ones_like(self.cost_matrix)
         self.s_state_mesh_2d, self.d_state_mesh_2d = np.meshgrid(
@@ -511,71 +559,212 @@ class SSPMMCSolver:
         """Get cost from cost matrix for given stability and difficulty."""
         return self.cost_matrix[self.d2i(d), self.s2i(s)]
 
+def anki_sm2_policy(stability, difficulty, prev_interval, grade, ease):
+    """
+    Anki-SM-2 scheduling policy with default parameters.
+    Returns (interval, new_ease) tuple.
 
-if __name__ == "__main__":
-    solver = SSPMMCSolver(
-        review_costs=DEFAULT_REVIEW_COSTS,
-        first_rating_prob=DEFAULT_FIRST_RATING_PROB,
-        review_rating_prob=DEFAULT_REVIEW_RATING_PROB,
-        first_rating_offsets=DEFAULT_FIRST_RATING_OFFSETS,
-        first_session_lens=DEFAULT_FIRST_SESSION_LENS,
-        forget_rating_offset=DEFAULT_FORGET_RATING_OFFSET,
-        forget_session_len=DEFAULT_FORGET_SESSION_LEN,
-        w=w,
+    Parameters based on Anki 24.11 defaults:
+    - graduating_interval = 1 day
+    - easy_interval = 4 days
+    - starting_ease = 2.5
+    - easy_bonus = 1.3
+    - hard_interval = 1.2
+    - new_interval = 0 (for Again)
+    - interval_multiplier = 1.0
+    """
+
+    # Anki-SM-2 default parameters
+    graduating_interval = 1.0
+    easy_interval = 4.0
+    easy_bonus = 1.3
+    hard_interval_factor = 1.2
+    new_interval = 0.0
+    interval_multiplier = 1.0
+
+    # Update ease based on rating
+    new_ease = torch.where(
+        grade == 1,  # Again
+        ease - 0.2,
+        torch.where(
+            grade == 2,  # Hard
+            ease - 0.15,
+            torch.where(
+                grade == 4,  # Easy
+                ease + 0.15,
+                ease  # Good: no change
+            )
+        )
+    )
+    new_ease = torch.clamp(new_ease, 1.3, 5.5)
+
+    # Handle new cards (prev_interval = 0)
+    is_new_card = prev_interval == 0
+
+    # For new cards: use graduating interval or easy interval based on rating
+    new_card_interval = torch.where(
+        grade < 4,
+        torch.full_like(prev_interval, graduating_interval),
+        torch.full_like(prev_interval, easy_interval)
     )
 
-    cost_matrix, retention_matrix = solver.solve()
-    retention_matrix_tensor = torch.tensor(retention_matrix, device=DEVICE)
-    init_stabilities = solver.init_s(np.arange(1, 5))
-    init_difficulties = solver.init_d_with_short_term(np.arange(1, 5))
-    init_cost = cost_matrix[solver.d2i(init_difficulties), solver.s2i(init_stabilities)]
-    avg_cost = init_cost @ first_rating_prob
-    print(f"Average cost: {avg_cost:.2f}")
-    avg_retention = retention_matrix.mean()
-    print(f"Average retention: {avg_retention:.2f}")
+    # For existing cards: calculate based on Anki-SM-2 algorithm
+    # Assume reviews happen on time for simplicity
+    days_late = torch.zeros_like(prev_interval)
+    elapsed = prev_interval + days_late
 
-    s_state_mesh_2d, d_state_mesh_2d = np.meshgrid(solver.s_state, solver.d_state)
-    fig = plt.figure(figsize=(16, 8.5))
-    ax = fig.add_subplot(131, projection="3d")
-    ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, cost_matrix, cmap="viridis")
-    ax.set_xlabel("Stability")
-    ax.set_ylabel("Difficulty")
-    ax.set_zlabel("Cost")
-    ax.set_title(f"Avg Init Cost: {avg_cost:.2f}")
-    ax.set_box_aspect(None, zoom=0.8)
-
-    ax = fig.add_subplot(132, projection="3d")
-    ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, retention_matrix, cmap="viridis")
-    ax.set_xlabel("Stability")
-    ax.set_ylabel("Difficulty")
-    ax.set_zlabel("Retention")
-    ax.set_title(f"Avg Retention: {avg_retention:.2f}")
-    ax.set_box_aspect(None, zoom=0.8)
-
-    ax = fig.add_subplot(133, projection="3d")
-    interval_matrix = next_interval(s_state_mesh_2d, retention_matrix, -w[20])
-    ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, interval_matrix, cmap="viridis")
-    ax.set_xlabel("Stability")
-    ax.set_ylabel("Difficulty")
-    ax.set_zlabel("Interval")
-    ax.set_title("Interval")
-    ax.set_box_aspect(None, zoom=0.8)
-
-    plt.tight_layout()
-    plt.savefig("./plot/SSP-MMC.png")
-    plt.close()
-
-    def ssp_mmc_policy(s, d):
-        d_index = solver.d2i_torch(d)
-        s_index = solver.s2i_torch(s)
-        # Handle array inputs by checking each element
-        mask = (d_index >= solver.d_size) | (s_index >= solver.s_size - 1)
-        optimal_interval = torch.zeros_like(s)
-        optimal_interval[~mask] = next_interval_torch(
-            s[~mask], retention_matrix_tensor[d_index[~mask], s_index[~mask]], -w[20]
+    # Calculate new interval based on rating using the updated ease
+    existing_card_interval = torch.where(
+        grade == 1,  # Again
+        prev_interval * new_interval,  # Reset (will be clamped to 1 minimum)
+        torch.where(
+            grade == 2,  # Hard
+            torch.maximum(elapsed * hard_interval_factor, prev_interval * hard_interval_factor / 2),
+            torch.where(
+                grade == 4,  # Easy
+                torch.maximum(elapsed * new_ease, prev_interval) * easy_bonus,
+                # Good (grade == 3)
+                torch.maximum(elapsed * new_ease, prev_interval)
+            )
         )
-        optimal_interval[mask] = np.inf
-        return optimal_interval
+    )
+
+    # Apply interval multiplier
+    existing_card_interval = existing_card_interval * interval_multiplier
+
+    # Choose between new card and existing card intervals
+    result_interval = torch.where(
+        is_new_card,
+        new_card_interval,
+        existing_card_interval
+    )
+
+    # Clamp to minimum of 1 day
+    result_interval = torch.maximum(torch.ones_like(result_interval), result_interval)
+
+    # Apply s_max awareness
+    final_interval = s_max_aware_fixed_interval(stability, difficulty, result_interval, -w[20])
+
+    return final_interval, new_ease
+
+def memrise_policy(stability, difficulty, prev_interval, grade):
+    """
+    Vectorized version of fixed sequence policy with closest interval matching
+    Special case: if prev_interval=0 (new cards), start with interval=1
+    """
+    device = prev_interval.device
+    dtype = prev_interval.dtype
+
+    # Define the interval sequence
+    sequence = torch.tensor([1, 6, 12, 48, 96, 180], device=device, dtype=dtype)
+
+    # Special case: new cards (prev_interval = 0) always start with 1 day
+    is_new_card = prev_interval == 0
+
+    # For existing cards, find the closest interval in the sequence
+    prev_expanded = prev_interval.unsqueeze(-1)  # Shape: (..., 1)
+    sequence_expanded = sequence.unsqueeze(0).expand_as(
+        torch.cat([prev_expanded] * len(sequence), dim=-1)
+    )  # Shape: (..., 6)
+
+    # Calculate distances to each sequence value
+    distances = torch.abs(prev_expanded - sequence_expanded)
+
+    # Find the index of the closest sequence value
+    closest_indices = torch.argmin(distances, dim=-1)
+
+    # Calculate next indices (advance by 1, but cap at last position)
+    next_indices = torch.clamp(closest_indices + 1, 0, len(sequence) - 1)
+
+    # Get the next intervals
+    next_intervals = sequence[next_indices]
+
+    # Handle different cases:
+    # 1. New cards (prev_interval=0): always start with 1 day
+    # 2. Again grade: reset to 1 day
+    # 3. Hard/Good/Easy: advance in sequence with s_max awareness
+    result = torch.where(
+        is_new_card,  # New cards
+        torch.ones_like(prev_interval),  # Start with 1 day
+        torch.where(
+            grade == 1,  # Again
+            torch.ones_like(prev_interval),  # Reset to 1 day
+            s_max_aware_fixed_interval(stability, difficulty, next_intervals, -w[20])
+            # Hard/Good/Easy: advance from the closest sequence position
+        )
+    )
+
+    return result
+
+def create_fixed_interval_policy(interval):
+    """Create a fixed interval policy that uses the full 4-parameter signature"""
+    def fixed_policy(stability, difficulty, prev_interval, grade):
+        return s_max_aware_fixed_interval(stability, difficulty, interval, -w[20])
+    return fixed_policy
+
+def create_dr_policy(desired_retention):
+    """Create a DR policy that uses the full 4-parameter signature"""
+    def dr_policy(stability, difficulty, prev_interval, grade):
+        return s_max_aware_next_interval(stability, difficulty, desired_retention, -w[20])
+    return dr_policy
+
+if __name__ == "__main__":
+    simulation_table = []
+
+    # Hyperparameters for the solver
+    # Default behavior: {'a0': 'log', 'a1': 1, 'a2': 1, 'a3': 1, 'a4': 1, 'a5': 0, 'a6': 0, 'a7': 0, 'a8': 0}
+    # (the first three hyperparameters don't matter in this case)
+    # You can specify a title for a given combination of hyperparameters, such as 'Maximum efficiency' or 'Balanced'
+    # 'Balanced' refers to hyperparameters that provide the biggest advantage over fixed DR
+    list_of_dictionaries = [
+        [{'a0': 'log', 'a1': 1.04, 'a2': 10.0, 'a3': 4.14, 'a4': 1.15, 'a5': 0.03, 'a6': -5.0, 'a7': -1.03, 'a8': 5.0},
+         'Maximum knowledge'],
+        [{'a0': 'log', 'a1': 1.37, 'a2': 10.0, 'a3': 1.24, 'a4': -5.0, 'a5': -5.0, 'a6': -5.0, 'a7': 5.0, 'a8': 5.0},
+         None],
+        [{'a0': 'log', 'a1': 1.24, 'a2': 10.0, 'a3': 3.16, 'a4': 1.29, 'a5': -1.61, 'a6': -5.0, 'a7': 0.24, 'a8': 5.0},
+         None],
+        [{'a0': 'log', 'a1': 1.33, 'a2': 1.49, 'a3': -1.2, 'a4': -5.0, 'a5': -5.0, 'a6': -5.0, 'a7': 5.0, 'a8': 5.0},
+         None],
+        [{'a0': 'log', 'a1': 1.23, 'a2': 10.0, 'a3': 3.98, 'a4': 2.46, 'a5': -0.16, 'a6': -5.0, 'a7': -3.18, 'a8': 5.0},
+         None],
+        [{'a0': 'no_log', 'a1': 0.1, 'a2': 0.1, 'a3': 5.0, 'a4': 3.44, 'a5': -3.71, 'a6': -5.0, 'a7': -3.1, 'a8': -5.0},
+         None],
+        [{'a0': 'log', 'a1': 1.61, 'a2': 9.83, 'a3': -0.83, 'a4': -5.0, 'a5': -5.0, 'a6': -5.0, 'a7': 4.7, 'a8': 5.0},
+         None],
+        [{'a0': 'no_log', 'a1': 0.14, 'a2': 0.1, 'a3': 5.0, 'a4': 5.0, 'a5': -5.0, 'a6': -5.0, 'a7': -2.67, 'a8': -5.0},
+         None],
+        [{'a0': 'no_log', 'a1': 0.17, 'a2': 0.1, 'a3': 5.0, 'a4': 5.0, 'a5': -4.55, 'a6': -5.0, 'a7': -3.46, 'a8': -5.0},
+         None],
+        [{'a0': 'no_log', 'a1': 0.18, 'a2': 0.1, 'a3': 5.0, 'a4': 5.0, 'a5': -4.69, 'a6': -5.0, 'a7': -3.56, 'a8': -5.0},
+         None],
+        [{'a0': 'no_log', 'a1': 0.18, 'a2': 0.11, 'a3': 5.0, 'a4': 5.0, 'a5': -4.73, 'a6': -5.0, 'a7': -3.6, 'a8': -5.0},
+         None],
+        [{'a0': 'no_log', 'a1': 0.19, 'a2': 0.11, 'a3': 5.0, 'a4': 5.0, 'a5': -5.0, 'a6': -5.0, 'a7': -3.81, 'a8': -5.0},
+         None],
+        [{'a0': 'no_log', 'a1': 0.19, 'a2': 0.11, 'a3': 5.0, 'a4': 5.0, 'a5': -5.0, 'a6': -5.0, 'a7': -3.95, 'a8': -5.0},
+         None],
+        [{'a0': 'log', 'a1': 2.84, 'a2': 10.0, 'a3': 1.45, 'a4': 1.69, 'a5': 0.7, 'a6': -5.0, 'a7': -1.74, 'a8': 2.2},
+         None],
+        [{'a0': 'log', 'a1': 2.71, 'a2': 4.47, 'a3': 1.55, 'a4': 2.23, 'a5': 0.15, 'a6': -5.0, 'a7': -1.41, 'a8': 5.0},
+         None],
+        [{'a0': 'log', 'a1': 3.94, 'a2': 10.0, 'a3': 0.96, 'a4': 1.36, 'a5': -0.4, 'a6': -5.0, 'a7': -2.14, 'a8': 2.31},
+         None],
+        [{'a0': 'log', 'a1': 6.78, 'a2': 8.31, 'a3': -2.59, 'a4': -5.0, 'a5': -2.6, 'a6': -5.0, 'a7': 0.67, 'a8': 5.0},
+         None],
+        [{'a0': 'log', 'a1': 1.84, 'a2': 0.27, 'a3': 5.0, 'a4': 2.01, 'a5': -2.97, 'a6': -5.0, 'a7': -3.91, 'a8': 5.0},
+         None],
+        [{'a0': 'log', 'a1': 10.0, 'a2': 0.34, 'a3': 4.78, 'a4': -0.86, 'a5': -0.85, 'a6': -5.0, 'a7': -3.98, 'a8': 5.0},
+         None],
+        [{'a0': 'no_log', 'a1': 10.0, 'a2': 0.1, 'a3': 5.0, 'a4': 4.19, 'a5': -0.96, 'a6': -3.01, 'a7': -3.18, 'a8': 5.0},
+         'Balanced'],
+        [{'a0': 'no_log', 'a1': 0.11, 'a2': 0.64, 'a3': -2.31, 'a4': 5.0, 'a5': 5.0, 'a6': -1.52, 'a7': -1.01, 'a8': 5.0},
+         None],
+        [{'a0': 'no_log', 'a1': 4.34, 'a2': 0.1, 'a3': 3.39, 'a4': 5.0, 'a5': -2.2, 'a6': 5.0, 'a7': -3.3, 'a8': 5.0},
+         None],
+        [{'a0': 'log', 'a1': 10.0, 'a2': 0.37, 'a3': 3.06, 'a4': 0.91, 'a5': -1.15, 'a6': -5.0, 'a7': -4.53, 'a8': 5.0},
+         None],
+        [{'a0': 'no_log', 'a1': 0.1, 'a2': 0.1, 'a3': 2.9, 'a4': 5.0, 'a5': -3.79, 'a6': 5.0, 'a7': -2.2, 'a8': 1.33},
+         'Maximum efficiency']]
 
     def simulate_policy(policy):
         (
@@ -588,40 +777,42 @@ if __name__ == "__main__":
             w=w,
             policy=policy,
             device=DEVICE,
-            deck_size=10000,
-            learn_span=365 * 10,
-            s_max=S_MAX,
-        )
+            deck_size=DECK_SIZE,
+            learn_span=LEARN_SPAN,
+            learn_limit_perday=LEARN_LIMIT_PER_DAY,
+            review_limit_perday=REVIEW_LIMIT_PER_DAY,
+            max_cost_perday=MAX_STUDYING_TIME_PER_DAY,
+            s_max=S_MAX)
 
-        def moving_average(data, window_size=365 // 20):
-            weights = np.ones(window_size) / window_size
-            return np.apply_along_axis(
-                lambda x: np.convolve(x, weights, mode="valid"), axis=-1, arr=data
-            )
-
-        return (
-            moving_average(review_cnt_per_day),
-            moving_average(cost_per_day),
-            moving_average(memorized_cnt_per_day),
-        )
-
-    simulation_table = []
+        return review_cnt_per_day, cost_per_day, memorized_cnt_per_day
 
     def plot_simulation(policy, title):
-        review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(
-            policy
-        )
-        simulation_table.append(
-            (
-                title,
-                review_cnt_per_day.mean(axis=-1).mean(axis=-1),
-                cost_per_day.mean(axis=-1).mean(axis=-1) / 60,
-                memorized_cnt_per_day[:, -1].mean(),
-                (
-                    memorized_cnt_per_day[:, -1] / (cost_per_day.mean(axis=-1) / 60)
-                ).mean(),
-            )
-        )
+        review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(policy)
+
+        reviews_average = review_cnt_per_day.mean()   # average number of reviews per day
+
+        time_average = cost_per_day.mean() / 60  # average time spent on reviews per day, minutes
+
+        accum_cost = np.cumsum(cost_per_day, axis=-1)
+        accum_time_average = accum_cost.mean() / 3600  # accumulated average time spent on reviews, hours
+        # print(cost_per_day.shape)
+        # print(np.cumsum(cost_per_day, axis=-1).shape)
+        # print(cost_per_day.tolist()[0][:20])
+        # print(np.cumsum(cost_per_day, axis=-1).tolist()[0][:20])
+
+        memorized_average = memorized_cnt_per_day.mean()  # average of memorized cards on each day
+
+        # avg_memorized_per_minute = memorized_average / time_average  # efficiency
+        avg_accum_memorized_per_hour = memorized_average / accum_time_average  # efficiency
+
+        # Check that it's a single number
+        assert not isinstance(reviews_average, np.ndarray), f'{reviews_average}'
+        assert not isinstance(time_average, np.ndarray), f'{time_average}'
+        assert not isinstance(memorized_average, np.ndarray), f'{memorized_average}'
+        assert not isinstance(avg_accum_memorized_per_hour, np.ndarray), f'{avg_accum_memorized_per_hour}'
+
+        simulation_table.append((title, reviews_average, time_average, memorized_average, avg_accum_memorized_per_hour))
+
         fig = plt.figure(figsize=(16, 8.5))
         ax = fig.add_subplot(131)
         ax.plot(review_cnt_per_day[0])
@@ -641,7 +832,80 @@ if __name__ == "__main__":
         plt.savefig(f"./simulation/{title}.png")
         plt.close()
 
-    plot_simulation(ssp_mmc_policy, "SSP-MMC")
+    for param_dict_with_name in list_of_dictionaries:
+        # Solver needs to be re-initialized each time
+        solver = SSPMMCSolver(
+            review_costs=DEFAULT_REVIEW_COSTS,
+            first_rating_prob=DEFAULT_FIRST_RATING_PROB,
+            review_rating_prob=DEFAULT_REVIEW_RATING_PROB,
+            first_rating_offsets=DEFAULT_FIRST_RATING_OFFSETS,
+            first_session_lens=DEFAULT_FIRST_SESSION_LENS,
+            forget_rating_offset=DEFAULT_FORGET_RATING_OFFSET,
+            forget_session_len=DEFAULT_FORGET_SESSION_LEN,
+            w=w,
+        )
+
+        def ssp_mmc_policy(s, d):
+            d_index = solver.d2i_torch(d)
+            s_index = solver.s2i_torch(s)
+            # Handle array inputs by checking each element
+            mask = (d_index >= solver.d_size) | (s_index >= solver.s_size - 1)
+            optimal_interval = torch.zeros_like(s)
+            optimal_interval[~mask] = next_interval_torch(
+                s[~mask], retention_matrix_tensor[d_index[~mask], s_index[~mask]], -w[20]
+            )
+            optimal_interval[mask] = np.inf
+            return optimal_interval
+
+        cost_matrix, retention_matrix = solver.solve(param_dict_with_name[0])
+        retention_matrix_tensor = torch.tensor(retention_matrix, device=DEVICE)
+        init_stabilities = solver.init_s(np.arange(1, 5))
+        init_difficulties = solver.init_d_with_short_term(np.arange(1, 5))
+        init_cost = cost_matrix[solver.d2i(init_difficulties), solver.s2i(init_stabilities)]
+        avg_cost = init_cost @ first_rating_prob
+        print(f"Average cost: {avg_cost:.2f}")
+        avg_retention = retention_matrix.mean()
+        print(f"Average retention: {avg_retention:.2f}")
+
+        s_state_mesh_2d, d_state_mesh_2d = np.meshgrid(solver.s_state, solver.d_state)
+        fig = plt.figure(figsize=(16, 8.5))
+        ax = fig.add_subplot(131, projection="3d")
+        ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, cost_matrix, cmap="viridis")
+        ax.set_xlabel("Stability")
+        ax.set_ylabel("Difficulty")
+        ax.set_zlabel("Cost")
+        ax.set_title(f"Avg Init Cost: {avg_cost:.2f}")
+        ax.set_box_aspect(None, zoom=0.8)
+
+        ax = fig.add_subplot(132, projection="3d")
+        ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, retention_matrix, cmap="viridis")
+        ax.set_xlabel("Stability")
+        ax.set_ylabel("Difficulty")
+        ax.set_zlabel("Retention")
+        ax.set_title(f"Avg Retention: {avg_retention:.2f}")
+        ax.set_box_aspect(None, zoom=0.8)
+
+        ax = fig.add_subplot(133, projection="3d")
+        interval_matrix = next_interval(s_state_mesh_2d, retention_matrix, -w[20])
+        ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, interval_matrix, cmap="viridis")
+        ax.set_xlabel("Stability")
+        ax.set_ylabel("Difficulty")
+        ax.set_zlabel("Interval")
+        ax.set_title("Interval")
+        ax.set_box_aspect(None, zoom=0.8)
+
+        plt.tight_layout()
+        plt.savefig("./plot/SSP-MMC.png")
+        plt.close()
+
+        if param_dict_with_name[-1] is not None:
+            plot_simulation(ssp_mmc_policy, f"SSP-MMC-FSRS ({param_dict_with_name[-1]})")
+        else:
+            plot_simulation(ssp_mmc_policy, "SSP-MMC-FSRS")
+
+    plot_simulation(memrise_policy, "Memrise")
+
+    plot_simulation(anki_sm2_policy, "Anki-SM-2")
 
     def optimal_policy_for_rating_sequence(rating_sequence: list[int]):
         s_list = []
@@ -672,9 +936,7 @@ if __name__ == "__main__":
         return s_list, r_list, ivl_list, g_list
 
     def plot_optimal_policy_vs_stability(rating_sequence: list[int]):
-        s_list, r_list, ivl_list, g_list = optimal_policy_for_rating_sequence(
-            rating_sequence
-        )
+        s_list, r_list, ivl_list, g_list = optimal_policy_for_rating_sequence(rating_sequence)
         fig = plt.figure(figsize=(16, 8.5))
         ax = fig.add_subplot(121)
         ax.plot(s_list, r_list, "*-")
@@ -700,7 +962,7 @@ if __name__ == "__main__":
 
     costs = []
 
-    r_range = np.linspace(R_MIN, R_MAX, 10)
+    r_range = np.arange(R_MIN, R_MAX, 0.01)
 
     for r in r_range:
         print("--------------------------------")
@@ -711,9 +973,7 @@ if __name__ == "__main__":
         print(f"Time: {end - start:.2f}s")
         init_stabilities = solver.init_s(np.arange(1, 5))
         init_difficulties = solver.init_d_with_short_term(np.arange(1, 5))
-        init_cost = cost_matrix[
-            solver.d2i(init_difficulties), solver.s2i(init_stabilities)
-        ]
+        init_cost = cost_matrix[solver.d2i(init_difficulties), solver.s2i(init_stabilities)]
         avg_cost = init_cost @ first_rating_prob
         avg_retention = r_state_mesh_2d.mean()
         print(f"Desired Retention: {r * 100:.2f}%")
@@ -728,9 +988,7 @@ if __name__ == "__main__":
         ax.set_title(f"Desired Retention: {r * 100:.2f}%, Avg Cost: {avg_cost:.2f}")
         ax.set_box_aspect(None, zoom=0.8)
         ax = fig.add_subplot(122, projection="3d")
-        ax.plot_surface(
-            s_state_mesh_2d, d_state_mesh_2d, r_state_mesh_2d, cmap="viridis"
-        )
+        ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, r_state_mesh_2d, cmap="viridis")
         ax.set_xlabel("Stability")
         ax.set_ylabel("Difficulty")
         ax.set_zlabel("Retention")
@@ -739,9 +997,8 @@ if __name__ == "__main__":
         plt.tight_layout()
         plt.savefig(f"./plot/DR={r:.2f}.png")
         plt.close()
-        plot_simulation(
-            lambda s, d: s_max_aware_next_interval(s, d, r, -w[20]), f"DR={r:.2f}"
-        )
+        dr_policy = create_dr_policy(r)
+        plot_simulation(dr_policy, f"DR={r:.2f}")
 
     fig = plt.figure(figsize=(8, 8))
     ax = fig.add_subplot(111)
@@ -750,31 +1007,195 @@ if __name__ == "__main__":
     ax.plot(r_range, costs)
     ax.set_xlabel("Desired Retention")
     ax.set_ylabel("Average Cost")
-    ax.set_title(
-        f"Optimal Retention: {optimal_retention * 100:.2f}%, Min Cost: {min_cost:.2f}"
-    )
+    ax.set_title(f"Optimal Retention: {optimal_retention * 100:.2f}%, Min Cost: {min_cost:.2f}")
     plt.savefig("./plot/cost_vs_retention.png")
     plt.close()
 
-    for fixed_interval in [3, 7, 30]:
-        plot_simulation(
-            lambda s, d: s_max_aware_fixed_interval(s, d, fixed_interval, -w[20]),
-            f"IVL={fixed_interval}",
-        )
+    for fixed_interval in [7, 14, 20, 30, 50, 75, 100]:
+        fixed_policy = create_fixed_interval_policy(fixed_interval)
+        plot_simulation(fixed_policy, f"Interval={fixed_interval}")
 
     print("--------------------------------")
 
     print(
-        "| Scheduling Policy | Average number of reviews per day | Average number of minutes per day | Total knowledge at the end | Knowledge per minute |"
+        "| Scheduling Policy | Reviews per day (average)↓ | Minutes per day (average)↓ | "
+        "Memorized cards (average, all days)↑ | Memorized/hours spent (average, all days)↑ |"
     )
     print("| --- | --- | --- | --- | --- |")
+
+    # Lists for plotting
+    ssp_mmc_titles = []
+    ssp_mmc_x = []
+    ssp_mmc_y = []
+
+    fixed_dr_titles = []
+    fixed_dr_x = []
+    fixed_dr_y = []
+
+    fixed_intervals_titles = []
+    fixed_intervals_x = []
+    fixed_intervals_y = []
+
+    # Other scheduling policies, such as Memrise or Anki-SM-2
+    other_titles = []
+    other_x = []
+    other_y = []
+
     for (
         title,
-        review_cnt_per_day,
-        cost_per_day,
-        memorized_cnt_at_end,
-        knowledge_per_minute,
+        reviews_average,
+        time_average,
+        memorized_average,
+        avg_accum_memorized_per_hour,
     ) in simulation_table:
         print(
-            f"| {title} | {review_cnt_per_day:.1f} | {cost_per_day:.1f} | {memorized_cnt_at_end:.0f} | {knowledge_per_minute:.0f} |"
+            f"| {title} | {reviews_average:.1f} | {time_average:.1f} | {memorized_average:.0f} | {avg_accum_memorized_per_hour:.1f} |"
         )
+
+        if 'SSP-MMC' in title:
+            ssp_mmc_titles.append(title)
+            ssp_mmc_x.append(memorized_average)
+            ssp_mmc_y.append(avg_accum_memorized_per_hour)
+        elif 'DR' in title:
+            fixed_dr_titles.append(title)
+            fixed_dr_x.append(memorized_average)
+            fixed_dr_y.append(avg_accum_memorized_per_hour)
+        elif 'Interval' in title:
+            fixed_intervals_titles.append(title)
+            fixed_intervals_x.append(memorized_average)
+            fixed_intervals_y.append(avg_accum_memorized_per_hour)
+        else:
+            other_titles.append(title)
+            other_x.append(memorized_average)
+            other_y.append(avg_accum_memorized_per_hour)
+
+    # Sanity checks
+    assert len(ssp_mmc_x) == len(ssp_mmc_y), f'{len(ssp_mmc_x)}, {len(ssp_mmc_y)}'
+    assert len(fixed_dr_x) == len(fixed_dr_y), f'{len(fixed_dr_x)}, {len(fixed_dr_y)}'
+    assert len(fixed_intervals_x) == len(fixed_intervals_y), f'{len(fixed_intervals_x)}, {len(fixed_intervals_y)}'
+    assert len(other_x) == len(other_y), f'{len(other_x)}, {len(other_y)}'
+
+    def border_aware_text(x_min, x_max, y_min, y_max, x, y, text, **kwargs):
+        """
+        Place text near point (x, y) while ensuring it stays within the specified boundaries.
+
+        Parameters:
+        -----------
+        x_min, x_max : float
+            Horizontal boundaries of the graph area
+        y_min, y_max : float
+            Vertical boundaries of the graph area
+        x, y : float
+            Data point coordinates where text should be placed
+        text : str
+            Text to display
+        **kwargs : dict
+            Additional arguments passed to plt.text()
+
+        Returns:
+        --------
+        matplotlib.text.Text object
+        """
+
+        # Calculate relative position within the boundaries (0 to 1)
+        x_rel = (x - x_min) / (x_max - x_min) if x_max != x_min else 0.5
+        # y_rel = (y - y_min) / (y_max - y_min) if y_max != y_min else 0.5
+
+        # Define margin as percentage of the range to avoid text touching borders
+        margin_x = (x_max - x_min) * 0.02  # 2% margin
+        # margin_y = (y_max - y_min) * 0.02  # 2% margin
+
+        # Extra space so that text doesn't overlap with the data point
+        extra_margin = (x_max - x_min) * 0.008  # 0.8%
+
+        # Determine horizontal alignment and position
+        if x_rel < 0.1:  # Near left edge
+            ha = 'left'
+            text_x = max(x + extra_margin, x_min + margin_x + extra_margin)
+        elif x_rel > 0.9:  # Near right edge
+            ha = 'right'
+            text_x = min(x - extra_margin, x_max - margin_x - extra_margin)
+        else:  # Middle area
+            ha = 'left'
+            text_x = x + extra_margin
+
+        # Determine vertical alignment and position
+        # if y_rel < 0.1:  # Near bottom edge
+        #     va = 'bottom'
+        #     text_y = max(y, y_min + margin_y)
+        # elif y_rel > 0.9:  # Near top edge
+        #     va = 'top'
+        #     text_y = min(y, y_max - margin_y)
+        # else:  # Middle area
+        #     va = 'center'
+        #     text_y = y
+
+        va = 'center'
+        text_y = y
+
+        # Set default alignment if not provided
+        kwargs.setdefault('ha', ha)
+        kwargs.setdefault('va', va)
+
+        # Add the text
+        return plt.text(text_x, text_y, text, **kwargs)
+
+    # Plotting the Pareto frontier
+    plt.figure(figsize=(12, 9))
+
+    balanced_index = -1
+    for list_with_dict in list_of_dictionaries:
+        if list_with_dict[1] == 'Balanced':
+            balanced_index = list_of_dictionaries.index(list_with_dict)
+
+    plt.plot(ssp_mmc_x, ssp_mmc_y, label='SSP-MMC-FSRS', linewidth=2, color='#00b050', marker='o')
+    # Special marker for the best (balanced) point
+    plt.plot(ssp_mmc_x[balanced_index], ssp_mmc_y[balanced_index], linewidth=2, color='#00b050', marker=(5, 1, 15),
+             ms=20)  # tilted star, like in Anki
+    plt.plot(fixed_dr_x, fixed_dr_y, label='Fixed DR (FSRS)', linewidth=2, color='#5b9bd5', marker='s')
+    plt.plot(other_x, other_y, label='Other scheduling policies', linewidth=2, linestyle='', color='red', marker='^',
+             ms=7.5)
+    plt.plot(fixed_intervals_x, fixed_intervals_y, label='Fixed intervals', linewidth=2, color='black', marker='x',
+             ms=7.5)
+
+    # Round to the smallest two hundred
+    x_min = 200 * np.floor((min([_[3] for _ in simulation_table]) / 200))
+    # Round to the highest two hundred
+    x_max = 200 * np.ceil((max([_[3] for _ in simulation_table]) / 200))
+    y_min = 0
+    y_max = max([_[4] for _ in simulation_table]) * 1.03
+
+    plt.xlim([x_min, x_max])
+    plt.ylim([y_min, y_max])
+
+    # Annotate the best (balanced) point
+    # Plus ten just to move it slightly to the right, because the special start marker is big
+    border_aware_text(x_min, x_max, y_min, y_max, ssp_mmc_x[balanced_index] + 10, ssp_mmc_y[balanced_index],
+                      'Balanced', fontsize=11)
+
+    # Annotate DR=70% and DR=99%
+    border_aware_text(x_min, x_max, y_min, y_max, fixed_dr_x[0], fixed_dr_y[0], f'{fixed_dr_titles[0]}', fontsize=11)
+    border_aware_text(x_min, x_max, y_min, y_max, fixed_dr_x[-1], fixed_dr_y[-1], f'{fixed_dr_titles[-1]}', fontsize=11)
+
+    # Annotate fixed intervals
+    for n in range(len(fixed_intervals_x)):
+        border_aware_text(x_min, x_max, y_min, y_max, fixed_intervals_x[n], fixed_intervals_y[n],
+                          f'{fixed_intervals_titles[n]}', fontsize=11)
+
+    # Annotate other policies
+    for n in range(len(other_x)):
+        border_aware_text(x_min, x_max, y_min, y_max, other_x[n], other_y[n],
+                          f'{other_titles[n]}', fontsize=11)
+
+    plt.xlabel('Memorized cards (average, all days)\n(higher=better)', fontsize=18)
+    plt.ylabel('Memorized/hours spent (average, all days)\n(higher=better)', fontsize=18)
+    plt.xticks(fontsize=16, color='black')
+    plt.yticks(fontsize=16, color='black')
+    plt.title(f'Pareto frontier (duration of the simulation={LEARN_SPAN/365:.0f} years,'
+              f'\ndeck size={DECK_SIZE}, new cards/day=10, S_max={S_MAX/365:.0f} years', fontsize=24)
+    plt.grid(True, ls='--')
+    plt.legend(fontsize=18, loc='lower left', facecolor='white')
+    plt.tight_layout()
+    plt.savefig(f"./plot/Pareto frontier.png")
+    plt.show()
+    plt.close()
