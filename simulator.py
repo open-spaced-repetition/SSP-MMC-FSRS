@@ -5,14 +5,14 @@ from tqdm import trange
 import inspect
 
 
-def power_forgetting_curve(t, s, decay, s_max=math.inf):
+def power_forgetting_curve(t, s, decay):
     factor = 0.9 ** (1.0 / decay) - 1.0
-    return np.where(s > s_max, 1, (1 + factor * t / s) ** decay)
+    return (1 + factor * t / s) ** decay
 
 
-def power_forgetting_curve_torch(t, s, decay, s_max=math.inf):
+def power_forgetting_curve_torch(t, s, decay):
     factor = 0.9 ** (1.0 / decay) - 1.0
-    return torch.where(s > s_max, 1, (1 + factor * t / s) ** decay)
+    return (1 + factor * t / s) ** decay
 
 
 def next_interval(s, r, decay):
@@ -189,7 +189,7 @@ def simulate(
         retrievability = torch.where(
             ~has_learned,
             retrievability,
-            power_forgetting_curve_torch(delta_t, stability, -w[20], s_max),
+            power_forgetting_curve_torch(delta_t, stability, -w[20]),
         )
         cost.zero_()
         need_review = due <= today
