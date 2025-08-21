@@ -894,14 +894,13 @@ if __name__ == "__main__":
         ax.set_title("Interval")
         ax.set_box_aspect(None, zoom=0.8)
 
-        plt.tight_layout()
-        plt.savefig("./plot/SSP-MMC.png")
-        plt.close()
+        title = f"SSP-MMC-FSRS ({param_dict_with_name[-1]})" if param_dict_with_name[-1] is not None else "SSP-MMC-FSRS"
 
-        if param_dict_with_name[-1] is not None:
-            plot_simulation(ssp_mmc_policy, f"SSP-MMC-FSRS ({param_dict_with_name[-1]})")
-        else:
-            plot_simulation(ssp_mmc_policy, "SSP-MMC-FSRS")
+        plt.tight_layout()
+        plt.savefig(f"./plot/{title}.png")
+        plt.close()
+        
+        plot_simulation(ssp_mmc_policy, title)
 
     plot_simulation(memrise_policy, "Memrise")
 
