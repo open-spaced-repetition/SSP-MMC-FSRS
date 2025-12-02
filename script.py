@@ -96,6 +96,7 @@ def bellman_solver(
     discount_factor=0.97,
     device=DEVICE,
 ):
+    start = time.perf_counter()
     S, D, R = costs_np[0].shape
     DTYPE = torch.float32
     with torch.inference_mode():
@@ -142,7 +143,8 @@ def bellman_solver(
             # if it % 100 == 0:
             #     print(f"it: {it}, cost diff: {cost_diff}")
 
-    print(f"Done. it: {it}, cost diff: {cost_diff}")
+    end = time.perf_counter()
+    print(f"Done in {end - start:.1f} seconds. Iterations: {it}/{n_iter}, cost diff: {cost_diff}")
     return state.cpu().numpy(), optimal_action.cpu().numpy()
 
 
