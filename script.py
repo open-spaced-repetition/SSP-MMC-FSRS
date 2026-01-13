@@ -1,4 +1,7 @@
 import time
+import json
+import hashlib
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -49,42 +52,245 @@ COST_MAX = 1_000_000
 LEARN_SPAN = 365 * 5
 REVIEW_LIMIT_PER_DAY = 9999
 DECK_SIZE = 10_000
+POLICY_OUTPUT_DIR = Path("policy")
+SAVE_POLICIES = True
 
 # Limited time, unlimited reviews OR unlimited time, limited reviews
-simulation_type = 'unlim_time_lim_reviews'  # 'lim_time_unlim_reviews'
+simulation_type = "unlim_time_lim_reviews"  # 'lim_time_unlim_reviews'
 
-if simulation_type == 'unlim_time_lim_reviews':
+if simulation_type == "unlim_time_lim_reviews":
     LEARN_LIMIT_PER_DAY = 10
     MAX_STUDYING_TIME_PER_DAY = 86400 / 2  # 12 hours
-elif simulation_type == 'lim_time_unlim_reviews':
+elif simulation_type == "lim_time_unlim_reviews":
     LEARN_LIMIT_PER_DAY = 9999
     MAX_STUDYING_TIME_PER_DAY = 3600  # one hour
 else:
-    raise Exception('Unknown simulation type')
+    raise Exception("Unknown simulation type")
 
 w = [
-    0.212,
-    1.2931,
-    2.3065,
-    8.2956,
-    6.4133,
-    0.8334,
-    3.0194,
+    0.0695,
+    1.7543,
+    7.5307,
+    16.5518,
+    6.4177,
+    0.8477,
+    3.2941,
     0.001,
-    1.8722,
-    0.1666,
-    0.796,
-    1.4835,
-    0.0614,
-    0.2629,
-    1.6483,
-    0.6014,
-    1.8729,
-    0.5425,
-    0.0912,
-    0.0658,
-    0.1542
+    1.5493,
+    0.5491,
+    0.5679,
+    1.4233,
+    0.001,
+    0.297,
+    2.0024,
+    0.245,
+    1.428,
+    0.9895,
+    0.6377,
+    0.0386,
+    0.1,
 ]
+
+
+def _safe_slug(value):
+    if not value:
+        return "policy"
+    result = []
+    for ch in value:
+        if ch.isalnum() or ch in ("-", "_"):
+            result.append(ch)
+        elif ch in (" ", "(", ")", "[", "]"):
+            result.append("_")
+        else:
+            result.append("_")
+    return "".join(result).strip("_").lower()
+
+
+def _jsonify(value):
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, (np.integer, np.floating)):
+        return value.item()
+    return value
+
+
+def _policy_hash(hyperparams):
+    normalized = {k: _jsonify(v) for k, v in hyperparams.items()}
+    payload = json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    return hashlib.sha1(payload).hexdigest()[:8]
+
+
+def save_policy(output_dir, title, solver, cost_matrix, retention_matrix, hyperparams):
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    policy_id = _policy_hash(hyperparams)
+    base_name = f"{_safe_slug(title)}_{policy_id}"
+    npz_path = output_dir / f"{base_name}.npz"
+    meta_path = output_dir / f"{base_name}.json"
+
+    np.savez_compressed(
+        npz_path,
+        retention_matrix=retention_matrix,
+        cost_matrix=cost_matrix,
+        s_state=solver.s_state,
+        d_state=solver.d_state,
+        r_state=solver.r_state,
+    )
+
+    meta = {
+        "title": title,
+        "policy_id": policy_id,
+        "policy_file": npz_path.name,
+        "created_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "hyperparams": {k: _jsonify(v) for k, v in hyperparams.items()},
+        "state_space": {
+            "s_min": float(solver.s_min),
+            "s_max": float(solver.s_max),
+            "short_step": float(solver.short_step),
+            "long_step": float(solver.long_step),
+            "d_min": float(solver.d_min),
+            "d_max": float(solver.d_max),
+            "d_eps": float(solver.d_eps),
+            "r_min": float(solver.r_min),
+            "r_max": float(solver.r_max),
+            "r_eps": float(solver.r_eps),
+        },
+        "w": _jsonify(np.array(w)),
+        "review_costs": _jsonify(review_costs),
+        "review_rating_prob": _jsonify(review_rating_prob),
+        "first_rating_prob": _jsonify(first_rating_prob),
+        "first_rating_offsets": _jsonify(first_rating_offsets),
+        "first_session_lens": _jsonify(first_session_lens),
+        "forget_rating_offset": float(forget_rating_offset),
+        "forget_session_len": float(forget_session_len),
+    }
+
+    with meta_path.open("w") as f:
+        json.dump(meta, f, indent=2, sort_keys=True)
+
+
+def load_policy(policy_path, device=None):
+    policy_path = Path(policy_path)
+    meta = None
+    meta_path = None
+    npz_path = None
+
+    if policy_path.suffix == ".json":
+        meta_path = policy_path
+        with meta_path.open("r") as f:
+            meta = json.load(f)
+        npz_path = meta_path.parent / meta["policy_file"]
+    elif policy_path.suffix == ".npz":
+        npz_path = policy_path
+        meta_path = policy_path.with_suffix(".json")
+        if meta_path.exists():
+            with meta_path.open("r") as f:
+                meta = json.load(f)
+    else:
+        candidate_json = policy_path.with_suffix(".json")
+        candidate_npz = policy_path.with_suffix(".npz")
+        if candidate_json.exists():
+            meta_path = candidate_json
+            with meta_path.open("r") as f:
+                meta = json.load(f)
+            npz_path = meta_path.parent / meta["policy_file"]
+        elif candidate_npz.exists():
+            npz_path = candidate_npz
+
+    if npz_path is None or not npz_path.exists():
+        raise FileNotFoundError(f"Policy file not found: {policy_path}")
+
+    data = np.load(npz_path)
+    retention_matrix = data["retention_matrix"]
+    cost_matrix = data["cost_matrix"] if "cost_matrix" in data else None
+    s_state = data["s_state"]
+    d_state = data["d_state"]
+    r_state = data["r_state"]
+
+    if meta is None:
+        raise ValueError(f"Missing metadata JSON for policy: {npz_path}")
+
+    state_space = meta["state_space"]
+    w_local = np.array(meta.get("w", w), dtype=float)
+    review_costs_local = np.array(meta.get("review_costs", review_costs), dtype=float)
+    first_rating_prob_local = np.array(
+        meta.get("first_rating_prob", first_rating_prob), dtype=float
+    )
+    review_rating_prob_local = np.array(
+        meta.get("review_rating_prob", review_rating_prob), dtype=float
+    )
+    first_rating_offsets_local = np.array(
+        meta.get("first_rating_offsets", first_rating_offsets), dtype=float
+    )
+    first_session_lens_local = np.array(
+        meta.get("first_session_lens", first_session_lens), dtype=float
+    )
+    forget_rating_offset_local = float(
+        meta.get("forget_rating_offset", forget_rating_offset)
+    )
+    forget_session_len_local = float(meta.get("forget_session_len", forget_session_len))
+
+    solver = SSPMMCSolver(
+        review_costs=review_costs_local,
+        first_rating_prob=first_rating_prob_local,
+        review_rating_prob=review_rating_prob_local,
+        first_rating_offsets=first_rating_offsets_local,
+        first_session_lens=first_session_lens_local,
+        forget_rating_offset=forget_rating_offset_local,
+        forget_session_len=forget_session_len_local,
+        w=w_local,
+    )
+    solver._init_state_spaces(
+        s_min=state_space["s_min"],
+        s_max=state_space["s_max"],
+        short_step=state_space["short_step"],
+        long_step=state_space["long_step"],
+        d_min=state_space["d_min"],
+        d_max=state_space["d_max"],
+        d_eps=state_space["d_eps"],
+        r_min=state_space["r_min"],
+        r_max=state_space["r_max"],
+        r_eps=state_space["r_eps"],
+    )
+
+    if retention_matrix.shape != (solver.d_size, solver.s_size):
+        raise ValueError(
+            "Retention matrix shape does not match state space: "
+            f"{retention_matrix.shape} vs ({solver.d_size}, {solver.s_size})"
+        )
+
+    if not np.array_equal(s_state, solver.s_state) or not np.array_equal(
+        d_state, solver.d_state
+    ):
+        raise ValueError("State grids do not match metadata state space parameters")
+
+    if device is None:
+        device = DEVICE
+    retention_matrix_tensor = torch.tensor(retention_matrix, device=device)
+    decay = -w_local[20]
+
+    def ssp_mmc_policy(s, d):
+        d_index = solver.d2i_torch(d)
+        s_index = solver.s2i_torch(s)
+        mask = (d_index >= solver.d_size) | (s_index >= solver.s_size - 1)
+        optimal_interval = torch.zeros_like(s)
+        optimal_interval[~mask] = next_interval_torch(
+            s[~mask],
+            retention_matrix_tensor[d_index[~mask], s_index[~mask]],
+            decay,
+        )
+        optimal_interval[mask] = np.inf
+        return optimal_interval
+
+    return {
+        "policy": ssp_mmc_policy,
+        "solver": solver,
+        "retention_matrix": retention_matrix,
+        "cost_matrix": cost_matrix,
+        "meta": meta,
+    }
 
 
 def bellman_solver(
@@ -441,11 +647,11 @@ class SSPMMCSolver:
 
         # Sanity check
         assert type(a0) == str
-        assert a0 in ['no_log', 'log']
+        assert a0 in ["no_log", "log"]
         assert a1 > 0
         assert a2 > 0
 
-        if a0 == 'log':  # hyperparameter
+        if a0 == "log":  # hyperparameter
             stability_ratio = np.log1p(self.s_state_mesh_3d) / np.log1p(self.s_max)
         else:
             stability_ratio = self.s_state_mesh_3d / self.s_max
@@ -456,12 +662,14 @@ class SSPMMCSolver:
         difficulty_modifier = np.power(difficulty_ratio, a2)  # hyperparameter
 
         # Sanity check
-        assert np.max(stability_modifier) <= 1, f'max={np.max(stability_modifier)}'
-        assert np.min(stability_modifier) >= 0, f'min={np.min(stability_modifier)}'
-        assert np.max(difficulty_modifier) <= 1, f'max={np.max(difficulty_modifier)}'
-        assert np.min(difficulty_modifier) >= 0, f'min={np.min(difficulty_modifier)}'
+        assert np.max(stability_modifier) <= 1, f"max={np.max(stability_modifier)}"
+        assert np.min(stability_modifier) >= 0, f"min={np.min(stability_modifier)}"
+        assert np.max(difficulty_modifier) <= 1, f"max={np.max(difficulty_modifier)}"
+        assert np.min(difficulty_modifier) >= 0, f"min={np.min(difficulty_modifier)}"
 
-        failure_cost = self.review_costs[0] * (a3 + a5 * stability_modifier + a7 * difficulty_modifier)  # three hyperparameters
+        failure_cost = self.review_costs[0] * (
+            a3 + a5 * stability_modifier + a7 * difficulty_modifier
+        )  # three hyperparameters
 
         costs.append(failure_cost)
 
@@ -474,11 +682,15 @@ class SSPMMCSolver:
             transitions.append(np.stack([self.d2i(next_d), self.s2i(next_s)], axis=-1))
             transition_probs.append(self.r_state_mesh_3d * self.review_rating_prob[i])
 
-            success_cost = review_cost * (a4 + a6 * stability_modifier + a8 * difficulty_modifier)  # three hyperparameters
+            success_cost = review_cost * (
+                a4 + a6 * stability_modifier + a8 * difficulty_modifier
+            )  # three hyperparameters
 
             costs.append(zeros + success_cost)
 
-        assert len(transitions) == len(transition_probs) and len(transitions) == len(costs)
+        assert len(transitions) == len(transition_probs) and len(transitions) == len(
+            costs
+        )
 
         self.cost_matrix, optimal_r_indices = bellman_solver(
             n_iter, self.cost_matrix, transitions, transition_probs, costs
@@ -559,6 +771,7 @@ class SSPMMCSolver:
         """Get cost from cost matrix for given stability and difficulty."""
         return self.cost_matrix[self.d2i(d), self.s2i(s)]
 
+
 def anki_sm2_policy(stability, difficulty, prev_interval, grade, ease):
     """
     Anki-SM-2 scheduling policy with default parameters.
@@ -589,12 +802,8 @@ def anki_sm2_policy(stability, difficulty, prev_interval, grade, ease):
         torch.where(
             grade == 2,  # Hard
             ease - 0.15,
-            torch.where(
-                grade == 4,  # Easy
-                ease + 0.15,
-                ease  # Good: no change
-            )
-        )
+            torch.where(grade == 4, ease + 0.15, ease),  # Easy  # Good: no change
+        ),
     )
     new_ease = torch.clamp(new_ease, 1.3, 5.5)
 
@@ -605,7 +814,7 @@ def anki_sm2_policy(stability, difficulty, prev_interval, grade, ease):
     new_card_interval = torch.where(
         grade < 4,
         torch.full_like(prev_interval, graduating_interval),
-        torch.full_like(prev_interval, easy_interval)
+        torch.full_like(prev_interval, easy_interval),
     )
 
     # For existing cards: calculate based on Anki-SM-2 algorithm
@@ -619,14 +828,16 @@ def anki_sm2_policy(stability, difficulty, prev_interval, grade, ease):
         prev_interval * new_interval,  # Reset (will be clamped to 1 minimum)
         torch.where(
             grade == 2,  # Hard
-            torch.maximum(elapsed * hard_interval_factor, prev_interval * hard_interval_factor / 2),
+            torch.maximum(
+                elapsed * hard_interval_factor, prev_interval * hard_interval_factor / 2
+            ),
             torch.where(
                 grade == 4,  # Easy
                 torch.maximum(elapsed * new_ease, prev_interval) * easy_bonus,
                 # Good (grade == 3)
-                torch.maximum(elapsed * new_ease, prev_interval)
-            )
-        )
+                torch.maximum(elapsed * new_ease, prev_interval),
+            ),
+        ),
     )
 
     # Apply interval multiplier
@@ -634,18 +845,19 @@ def anki_sm2_policy(stability, difficulty, prev_interval, grade, ease):
 
     # Choose between new card and existing card intervals
     result_interval = torch.where(
-        is_new_card,
-        new_card_interval,
-        existing_card_interval
+        is_new_card, new_card_interval, existing_card_interval
     )
 
     # Clamp to minimum of 1 day
     result_interval = torch.maximum(torch.ones_like(result_interval), result_interval)
 
     # Apply s_max awareness
-    final_interval = s_max_aware_fixed_interval(stability, difficulty, result_interval, -w[20])
+    final_interval = s_max_aware_fixed_interval(
+        stability, difficulty, result_interval, -w[20]
+    )
 
     return final_interval, new_ease
+
 
 def memrise_policy(stability, difficulty, prev_interval, grade):
     """
@@ -689,24 +901,33 @@ def memrise_policy(stability, difficulty, prev_interval, grade):
         torch.where(
             grade == 1,  # Again
             torch.ones_like(prev_interval),  # Reset to 1 day
-            s_max_aware_fixed_interval(stability, difficulty, next_intervals, -w[20])
+            s_max_aware_fixed_interval(stability, difficulty, next_intervals, -w[20]),
             # Hard/Good/Easy: advance from the closest sequence position
-        )
+        ),
     )
 
     return result
 
+
 def create_fixed_interval_policy(interval):
     """Create a fixed interval policy that uses the full 4-parameter signature"""
+
     def fixed_policy(stability, difficulty, prev_interval, grade):
         return s_max_aware_fixed_interval(stability, difficulty, interval, -w[20])
+
     return fixed_policy
+
 
 def create_dr_policy(desired_retention):
     """Create a DR policy that uses the full 4-parameter signature"""
+
     def dr_policy(stability, difficulty, prev_interval, grade):
-        return s_max_aware_next_interval(stability, difficulty, desired_retention, -w[20])
+        return s_max_aware_next_interval(
+            stability, difficulty, desired_retention, -w[20]
+        )
+
     return dr_policy
+
 
 if __name__ == "__main__":
     simulation_table = []
@@ -717,54 +938,343 @@ if __name__ == "__main__":
     # You can specify a title for a given combination of hyperparameters, such as 'Maximum efficiency' or 'Balanced'
     # 'Balanced' refers to hyperparameters that provide the biggest advantage over fixed DR
     list_of_dictionaries = [
-        [{'a0': 'log', 'a1': 1.04, 'a2': 10.0, 'a3': 4.14, 'a4': 1.15, 'a5': 0.03, 'a6': -5.0, 'a7': -1.03, 'a8': 5.0},
-         'Maximum knowledge'],
-        [{'a0': 'log', 'a1': 1.37, 'a2': 10.0, 'a3': 1.24, 'a4': -5.0, 'a5': -5.0, 'a6': -5.0, 'a7': 5.0, 'a8': 5.0},
-         None],
-        [{'a0': 'log', 'a1': 1.24, 'a2': 10.0, 'a3': 3.16, 'a4': 1.29, 'a5': -1.61, 'a6': -5.0, 'a7': 0.24, 'a8': 5.0},
-         None],
-        [{'a0': 'log', 'a1': 1.33, 'a2': 1.49, 'a3': -1.2, 'a4': -5.0, 'a5': -5.0, 'a6': -5.0, 'a7': 5.0, 'a8': 5.0},
-         None],
-        [{'a0': 'log', 'a1': 1.23, 'a2': 10.0, 'a3': 3.98, 'a4': 2.46, 'a5': -0.16, 'a6': -5.0, 'a7': -3.18, 'a8': 5.0},
-         None],
-        [{'a0': 'no_log', 'a1': 0.1, 'a2': 0.1, 'a3': 5.0, 'a4': 3.44, 'a5': -3.71, 'a6': -5.0, 'a7': -3.1, 'a8': -5.0},
-         None],
-        [{'a0': 'log', 'a1': 1.61, 'a2': 9.83, 'a3': -0.83, 'a4': -5.0, 'a5': -5.0, 'a6': -5.0, 'a7': 4.7, 'a8': 5.0},
-         None],
-        [{'a0': 'no_log', 'a1': 0.14, 'a2': 0.1, 'a3': 5.0, 'a4': 5.0, 'a5': -5.0, 'a6': -5.0, 'a7': -2.67, 'a8': -5.0},
-         None],
-        [{'a0': 'no_log', 'a1': 0.17, 'a2': 0.1, 'a3': 5.0, 'a4': 5.0, 'a5': -4.55, 'a6': -5.0, 'a7': -3.46, 'a8': -5.0},
-         None],
-        [{'a0': 'no_log', 'a1': 0.18, 'a2': 0.1, 'a3': 5.0, 'a4': 5.0, 'a5': -4.69, 'a6': -5.0, 'a7': -3.56, 'a8': -5.0},
-         None],
-        [{'a0': 'no_log', 'a1': 0.18, 'a2': 0.11, 'a3': 5.0, 'a4': 5.0, 'a5': -4.73, 'a6': -5.0, 'a7': -3.6, 'a8': -5.0},
-         None],
-        [{'a0': 'no_log', 'a1': 0.19, 'a2': 0.11, 'a3': 5.0, 'a4': 5.0, 'a5': -5.0, 'a6': -5.0, 'a7': -3.81, 'a8': -5.0},
-         None],
-        [{'a0': 'no_log', 'a1': 0.19, 'a2': 0.11, 'a3': 5.0, 'a4': 5.0, 'a5': -5.0, 'a6': -5.0, 'a7': -3.95, 'a8': -5.0},
-         None],
-        [{'a0': 'log', 'a1': 2.84, 'a2': 10.0, 'a3': 1.45, 'a4': 1.69, 'a5': 0.7, 'a6': -5.0, 'a7': -1.74, 'a8': 2.2},
-         None],
-        [{'a0': 'log', 'a1': 2.71, 'a2': 4.47, 'a3': 1.55, 'a4': 2.23, 'a5': 0.15, 'a6': -5.0, 'a7': -1.41, 'a8': 5.0},
-         None],
-        [{'a0': 'log', 'a1': 3.94, 'a2': 10.0, 'a3': 0.96, 'a4': 1.36, 'a5': -0.4, 'a6': -5.0, 'a7': -2.14, 'a8': 2.31},
-         None],
-        [{'a0': 'log', 'a1': 6.78, 'a2': 8.31, 'a3': -2.59, 'a4': -5.0, 'a5': -2.6, 'a6': -5.0, 'a7': 0.67, 'a8': 5.0},
-         None],
-        [{'a0': 'log', 'a1': 1.84, 'a2': 0.27, 'a3': 5.0, 'a4': 2.01, 'a5': -2.97, 'a6': -5.0, 'a7': -3.91, 'a8': 5.0},
-         None],
-        [{'a0': 'log', 'a1': 10.0, 'a2': 0.34, 'a3': 4.78, 'a4': -0.86, 'a5': -0.85, 'a6': -5.0, 'a7': -3.98, 'a8': 5.0},
-         None],
-        [{'a0': 'no_log', 'a1': 10.0, 'a2': 0.1, 'a3': 5.0, 'a4': 4.19, 'a5': -0.96, 'a6': -3.01, 'a7': -3.18, 'a8': 5.0},
-         'Balanced'],
-        [{'a0': 'no_log', 'a1': 0.11, 'a2': 0.64, 'a3': -2.31, 'a4': 5.0, 'a5': 5.0, 'a6': -1.52, 'a7': -1.01, 'a8': 5.0},
-         None],
-        [{'a0': 'no_log', 'a1': 4.34, 'a2': 0.1, 'a3': 3.39, 'a4': 5.0, 'a5': -2.2, 'a6': 5.0, 'a7': -3.3, 'a8': 5.0},
-         None],
-        [{'a0': 'log', 'a1': 10.0, 'a2': 0.37, 'a3': 3.06, 'a4': 0.91, 'a5': -1.15, 'a6': -5.0, 'a7': -4.53, 'a8': 5.0},
-         None],
-        [{'a0': 'no_log', 'a1': 0.1, 'a2': 0.1, 'a3': 2.9, 'a4': 5.0, 'a5': -3.79, 'a6': 5.0, 'a7': -2.2, 'a8': 1.33},
-         'Maximum efficiency']]
+        [
+            {
+                "a0": "log",
+                "a1": 1.04,
+                "a2": 10.0,
+                "a3": 4.14,
+                "a4": 1.15,
+                "a5": 0.03,
+                "a6": -5.0,
+                "a7": -1.03,
+                "a8": 5.0,
+            },
+            "Maximum knowledge",
+        ],
+        [
+            {
+                "a0": "log",
+                "a1": 1.37,
+                "a2": 10.0,
+                "a3": 1.24,
+                "a4": -5.0,
+                "a5": -5.0,
+                "a6": -5.0,
+                "a7": 5.0,
+                "a8": 5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "log",
+                "a1": 1.24,
+                "a2": 10.0,
+                "a3": 3.16,
+                "a4": 1.29,
+                "a5": -1.61,
+                "a6": -5.0,
+                "a7": 0.24,
+                "a8": 5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "log",
+                "a1": 1.33,
+                "a2": 1.49,
+                "a3": -1.2,
+                "a4": -5.0,
+                "a5": -5.0,
+                "a6": -5.0,
+                "a7": 5.0,
+                "a8": 5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "log",
+                "a1": 1.23,
+                "a2": 10.0,
+                "a3": 3.98,
+                "a4": 2.46,
+                "a5": -0.16,
+                "a6": -5.0,
+                "a7": -3.18,
+                "a8": 5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "no_log",
+                "a1": 0.1,
+                "a2": 0.1,
+                "a3": 5.0,
+                "a4": 3.44,
+                "a5": -3.71,
+                "a6": -5.0,
+                "a7": -3.1,
+                "a8": -5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "log",
+                "a1": 1.61,
+                "a2": 9.83,
+                "a3": -0.83,
+                "a4": -5.0,
+                "a5": -5.0,
+                "a6": -5.0,
+                "a7": 4.7,
+                "a8": 5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "no_log",
+                "a1": 0.14,
+                "a2": 0.1,
+                "a3": 5.0,
+                "a4": 5.0,
+                "a5": -5.0,
+                "a6": -5.0,
+                "a7": -2.67,
+                "a8": -5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "no_log",
+                "a1": 0.17,
+                "a2": 0.1,
+                "a3": 5.0,
+                "a4": 5.0,
+                "a5": -4.55,
+                "a6": -5.0,
+                "a7": -3.46,
+                "a8": -5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "no_log",
+                "a1": 0.18,
+                "a2": 0.1,
+                "a3": 5.0,
+                "a4": 5.0,
+                "a5": -4.69,
+                "a6": -5.0,
+                "a7": -3.56,
+                "a8": -5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "no_log",
+                "a1": 0.18,
+                "a2": 0.11,
+                "a3": 5.0,
+                "a4": 5.0,
+                "a5": -4.73,
+                "a6": -5.0,
+                "a7": -3.6,
+                "a8": -5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "no_log",
+                "a1": 0.19,
+                "a2": 0.11,
+                "a3": 5.0,
+                "a4": 5.0,
+                "a5": -5.0,
+                "a6": -5.0,
+                "a7": -3.81,
+                "a8": -5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "no_log",
+                "a1": 0.19,
+                "a2": 0.11,
+                "a3": 5.0,
+                "a4": 5.0,
+                "a5": -5.0,
+                "a6": -5.0,
+                "a7": -3.95,
+                "a8": -5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "log",
+                "a1": 2.84,
+                "a2": 10.0,
+                "a3": 1.45,
+                "a4": 1.69,
+                "a5": 0.7,
+                "a6": -5.0,
+                "a7": -1.74,
+                "a8": 2.2,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "log",
+                "a1": 2.71,
+                "a2": 4.47,
+                "a3": 1.55,
+                "a4": 2.23,
+                "a5": 0.15,
+                "a6": -5.0,
+                "a7": -1.41,
+                "a8": 5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "log",
+                "a1": 3.94,
+                "a2": 10.0,
+                "a3": 0.96,
+                "a4": 1.36,
+                "a5": -0.4,
+                "a6": -5.0,
+                "a7": -2.14,
+                "a8": 2.31,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "log",
+                "a1": 6.78,
+                "a2": 8.31,
+                "a3": -2.59,
+                "a4": -5.0,
+                "a5": -2.6,
+                "a6": -5.0,
+                "a7": 0.67,
+                "a8": 5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "log",
+                "a1": 1.84,
+                "a2": 0.27,
+                "a3": 5.0,
+                "a4": 2.01,
+                "a5": -2.97,
+                "a6": -5.0,
+                "a7": -3.91,
+                "a8": 5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "log",
+                "a1": 10.0,
+                "a2": 0.34,
+                "a3": 4.78,
+                "a4": -0.86,
+                "a5": -0.85,
+                "a6": -5.0,
+                "a7": -3.98,
+                "a8": 5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "no_log",
+                "a1": 10.0,
+                "a2": 0.1,
+                "a3": 5.0,
+                "a4": 4.19,
+                "a5": -0.96,
+                "a6": -3.01,
+                "a7": -3.18,
+                "a8": 5.0,
+            },
+            "Balanced",
+        ],
+        [
+            {
+                "a0": "no_log",
+                "a1": 0.11,
+                "a2": 0.64,
+                "a3": -2.31,
+                "a4": 5.0,
+                "a5": 5.0,
+                "a6": -1.52,
+                "a7": -1.01,
+                "a8": 5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "no_log",
+                "a1": 4.34,
+                "a2": 0.1,
+                "a3": 3.39,
+                "a4": 5.0,
+                "a5": -2.2,
+                "a6": 5.0,
+                "a7": -3.3,
+                "a8": 5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "log",
+                "a1": 10.0,
+                "a2": 0.37,
+                "a3": 3.06,
+                "a4": 0.91,
+                "a5": -1.15,
+                "a6": -5.0,
+                "a7": -4.53,
+                "a8": 5.0,
+            },
+            None,
+        ],
+        [
+            {
+                "a0": "no_log",
+                "a1": 0.1,
+                "a2": 0.1,
+                "a3": 2.9,
+                "a4": 5.0,
+                "a5": -3.79,
+                "a6": 5.0,
+                "a7": -2.2,
+                "a8": 1.33,
+            },
+            "Maximum efficiency",
+        ],
+    ]
 
     def simulate_policy(policy):
         (
@@ -782,36 +1292,57 @@ if __name__ == "__main__":
             learn_limit_perday=LEARN_LIMIT_PER_DAY,
             review_limit_perday=REVIEW_LIMIT_PER_DAY,
             max_cost_perday=MAX_STUDYING_TIME_PER_DAY,
-            s_max=S_MAX)
+            s_max=S_MAX,
+        )
 
         return review_cnt_per_day, cost_per_day, memorized_cnt_per_day
 
     def plot_simulation(policy, title):
-        review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(policy)
+        review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(
+            policy
+        )
 
-        reviews_average = review_cnt_per_day.mean()   # average number of reviews per day
+        reviews_average = review_cnt_per_day.mean()  # average number of reviews per day
 
-        time_average = cost_per_day.mean() / 60  # average time spent on reviews per day, minutes
+        time_average = (
+            cost_per_day.mean() / 60
+        )  # average time spent on reviews per day, minutes
 
         accum_cost = np.cumsum(cost_per_day, axis=-1)
-        accum_time_average = accum_cost.mean() / 3600  # accumulated average time spent on reviews, hours
+        accum_time_average = (
+            accum_cost.mean() / 3600
+        )  # accumulated average time spent on reviews, hours
         # print(cost_per_day.shape)
         # print(np.cumsum(cost_per_day, axis=-1).shape)
         # print(cost_per_day.tolist()[0][:20])
         # print(np.cumsum(cost_per_day, axis=-1).tolist()[0][:20])
 
-        memorized_average = memorized_cnt_per_day.mean()  # average of memorized cards on each day
+        memorized_average = (
+            memorized_cnt_per_day.mean()
+        )  # average of memorized cards on each day
 
         # avg_memorized_per_minute = memorized_average / time_average  # efficiency
-        avg_accum_memorized_per_hour = memorized_average / accum_time_average  # efficiency
+        avg_accum_memorized_per_hour = (
+            memorized_average / accum_time_average
+        )  # efficiency
 
         # Check that it's a single number
-        assert not isinstance(reviews_average, np.ndarray), f'{reviews_average}'
-        assert not isinstance(time_average, np.ndarray), f'{time_average}'
-        assert not isinstance(memorized_average, np.ndarray), f'{memorized_average}'
-        assert not isinstance(avg_accum_memorized_per_hour, np.ndarray), f'{avg_accum_memorized_per_hour}'
+        assert not isinstance(reviews_average, np.ndarray), f"{reviews_average}"
+        assert not isinstance(time_average, np.ndarray), f"{time_average}"
+        assert not isinstance(memorized_average, np.ndarray), f"{memorized_average}"
+        assert not isinstance(
+            avg_accum_memorized_per_hour, np.ndarray
+        ), f"{avg_accum_memorized_per_hour}"
 
-        simulation_table.append((title, reviews_average, time_average, memorized_average, avg_accum_memorized_per_hour))
+        simulation_table.append(
+            (
+                title,
+                reviews_average,
+                time_average,
+                memorized_average,
+                avg_accum_memorized_per_hour,
+            )
+        )
 
         fig = plt.figure(figsize=(16, 8.5))
         ax = fig.add_subplot(131)
@@ -852,7 +1383,9 @@ if __name__ == "__main__":
             mask = (d_index >= solver.d_size) | (s_index >= solver.s_size - 1)
             optimal_interval = torch.zeros_like(s)
             optimal_interval[~mask] = next_interval_torch(
-                s[~mask], retention_matrix_tensor[d_index[~mask], s_index[~mask]], -w[20]
+                s[~mask],
+                retention_matrix_tensor[d_index[~mask], s_index[~mask]],
+                -w[20],
             )
             optimal_interval[mask] = np.inf
             return optimal_interval
@@ -861,7 +1394,9 @@ if __name__ == "__main__":
         retention_matrix_tensor = torch.tensor(retention_matrix, device=DEVICE)
         init_stabilities = solver.init_s(np.arange(1, 5))
         init_difficulties = solver.init_d_with_short_term(np.arange(1, 5))
-        init_cost = cost_matrix[solver.d2i(init_difficulties), solver.s2i(init_stabilities)]
+        init_cost = cost_matrix[
+            solver.d2i(init_difficulties), solver.s2i(init_stabilities)
+        ]
         avg_cost = init_cost @ first_rating_prob
         print(f"Average cost: {avg_cost:.2f}")
         avg_retention = retention_matrix.mean()
@@ -878,7 +1413,9 @@ if __name__ == "__main__":
         ax.set_box_aspect(None, zoom=0.8)
 
         ax = fig.add_subplot(132, projection="3d")
-        ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, retention_matrix, cmap="viridis")
+        ax.plot_surface(
+            s_state_mesh_2d, d_state_mesh_2d, retention_matrix, cmap="viridis"
+        )
         ax.set_xlabel("Stability")
         ax.set_ylabel("Difficulty")
         ax.set_zlabel("Retention")
@@ -887,19 +1424,35 @@ if __name__ == "__main__":
 
         ax = fig.add_subplot(133, projection="3d")
         interval_matrix = next_interval(s_state_mesh_2d, retention_matrix, -w[20])
-        ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, interval_matrix, cmap="viridis")
+        ax.plot_surface(
+            s_state_mesh_2d, d_state_mesh_2d, interval_matrix, cmap="viridis"
+        )
         ax.set_xlabel("Stability")
         ax.set_ylabel("Difficulty")
         ax.set_zlabel("Interval")
         ax.set_title("Interval")
         ax.set_box_aspect(None, zoom=0.8)
 
-        title = f"SSP-MMC-FSRS ({param_dict_with_name[-1]})" if param_dict_with_name[-1] is not None else "SSP-MMC-FSRS"
+        title = (
+            f"SSP-MMC-FSRS ({param_dict_with_name[-1]})"
+            if param_dict_with_name[-1] is not None
+            else "SSP-MMC-FSRS"
+        )
+
+        if SAVE_POLICIES:
+            save_policy(
+                POLICY_OUTPUT_DIR,
+                title,
+                solver,
+                cost_matrix,
+                retention_matrix,
+                param_dict_with_name[0],
+            )
 
         plt.tight_layout()
         plt.savefig(f"./plot/{title}.png")
         plt.close()
-        
+
         plot_simulation(ssp_mmc_policy, title)
 
     plot_simulation(memrise_policy, "Memrise")
@@ -935,7 +1488,9 @@ if __name__ == "__main__":
         return s_list, r_list, ivl_list, g_list
 
     def plot_optimal_policy_vs_stability(rating_sequence: list[int]):
-        s_list, r_list, ivl_list, g_list = optimal_policy_for_rating_sequence(rating_sequence)
+        s_list, r_list, ivl_list, g_list = optimal_policy_for_rating_sequence(
+            rating_sequence
+        )
         fig = plt.figure(figsize=(16, 8.5))
         ax = fig.add_subplot(121)
         ax.plot(s_list, r_list, "*-")
@@ -972,7 +1527,9 @@ if __name__ == "__main__":
         print(f"Time: {end - start:.2f}s")
         init_stabilities = solver.init_s(np.arange(1, 5))
         init_difficulties = solver.init_d_with_short_term(np.arange(1, 5))
-        init_cost = cost_matrix[solver.d2i(init_difficulties), solver.s2i(init_stabilities)]
+        init_cost = cost_matrix[
+            solver.d2i(init_difficulties), solver.s2i(init_stabilities)
+        ]
         avg_cost = init_cost @ first_rating_prob
         avg_retention = r_state_mesh_2d.mean()
         print(f"Desired Retention: {r * 100:.2f}%")
@@ -987,7 +1544,9 @@ if __name__ == "__main__":
         ax.set_title(f"Desired Retention: {r * 100:.2f}%, Avg Cost: {avg_cost:.2f}")
         ax.set_box_aspect(None, zoom=0.8)
         ax = fig.add_subplot(122, projection="3d")
-        ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, r_state_mesh_2d, cmap="viridis")
+        ax.plot_surface(
+            s_state_mesh_2d, d_state_mesh_2d, r_state_mesh_2d, cmap="viridis"
+        )
         ax.set_xlabel("Stability")
         ax.set_ylabel("Difficulty")
         ax.set_zlabel("Retention")
@@ -1006,7 +1565,9 @@ if __name__ == "__main__":
     ax.plot(r_range, costs)
     ax.set_xlabel("Desired Retention")
     ax.set_ylabel("Average Cost")
-    ax.set_title(f"Optimal Retention: {optimal_retention * 100:.2f}%, Min Cost: {min_cost:.2f}")
+    ax.set_title(
+        f"Optimal Retention: {optimal_retention * 100:.2f}%, Min Cost: {min_cost:.2f}"
+    )
     plt.savefig("./plot/cost_vs_retention.png")
     plt.close()
 
@@ -1051,15 +1612,15 @@ if __name__ == "__main__":
             f"| {title} | {reviews_average:.1f} | {time_average:.1f} | {memorized_average:.0f} | {avg_accum_memorized_per_hour:.1f} |"
         )
 
-        if 'SSP-MMC' in title:
+        if "SSP-MMC" in title:
             ssp_mmc_titles.append(title)
             ssp_mmc_x.append(memorized_average)
             ssp_mmc_y.append(avg_accum_memorized_per_hour)
-        elif 'DR' in title:
+        elif "DR" in title:
             fixed_dr_titles.append(title)
             fixed_dr_x.append(memorized_average)
             fixed_dr_y.append(avg_accum_memorized_per_hour)
-        elif 'Interval' in title:
+        elif "Interval" in title:
             fixed_intervals_titles.append(title)
             fixed_intervals_x.append(memorized_average)
             fixed_intervals_y.append(avg_accum_memorized_per_hour)
@@ -1069,10 +1630,12 @@ if __name__ == "__main__":
             other_y.append(avg_accum_memorized_per_hour)
 
     # Sanity checks
-    assert len(ssp_mmc_x) == len(ssp_mmc_y), f'{len(ssp_mmc_x)}, {len(ssp_mmc_y)}'
-    assert len(fixed_dr_x) == len(fixed_dr_y), f'{len(fixed_dr_x)}, {len(fixed_dr_y)}'
-    assert len(fixed_intervals_x) == len(fixed_intervals_y), f'{len(fixed_intervals_x)}, {len(fixed_intervals_y)}'
-    assert len(other_x) == len(other_y), f'{len(other_x)}, {len(other_y)}'
+    assert len(ssp_mmc_x) == len(ssp_mmc_y), f"{len(ssp_mmc_x)}, {len(ssp_mmc_y)}"
+    assert len(fixed_dr_x) == len(fixed_dr_y), f"{len(fixed_dr_x)}, {len(fixed_dr_y)}"
+    assert len(fixed_intervals_x) == len(
+        fixed_intervals_y
+    ), f"{len(fixed_intervals_x)}, {len(fixed_intervals_y)}"
+    assert len(other_x) == len(other_y), f"{len(other_x)}, {len(other_y)}"
 
     def border_aware_text(x_min, x_max, y_min, y_max, x, y, text, **kwargs):
         """
@@ -1109,13 +1672,13 @@ if __name__ == "__main__":
 
         # Determine horizontal alignment and position
         if x_rel < 0.1:  # Near left edge
-            ha = 'left'
+            ha = "left"
             text_x = max(x + extra_margin, x_min + margin_x + extra_margin)
         elif x_rel > 0.9:  # Near right edge
-            ha = 'right'
+            ha = "right"
             text_x = min(x - extra_margin, x_max - margin_x - extra_margin)
         else:  # Middle area
-            ha = 'left'
+            ha = "left"
             text_x = x + extra_margin
 
         # Determine vertical alignment and position
@@ -1129,12 +1692,12 @@ if __name__ == "__main__":
         #     va = 'center'
         #     text_y = y
 
-        va = 'center'
+        va = "center"
         text_y = y
 
         # Set default alignment if not provided
-        kwargs.setdefault('ha', ha)
-        kwargs.setdefault('va', va)
+        kwargs.setdefault("ha", ha)
+        kwargs.setdefault("va", va)
 
         # Add the text
         return plt.text(text_x, text_y, text, **kwargs)
@@ -1144,18 +1707,53 @@ if __name__ == "__main__":
 
     balanced_index = -1
     for list_with_dict in list_of_dictionaries:
-        if list_with_dict[1] == 'Balanced':
+        if list_with_dict[1] == "Balanced":
             balanced_index = list_of_dictionaries.index(list_with_dict)
 
-    plt.plot(ssp_mmc_x, ssp_mmc_y, label='SSP-MMC-FSRS', linewidth=2, color='#00b050', marker='o')
+    plt.plot(
+        ssp_mmc_x,
+        ssp_mmc_y,
+        label="SSP-MMC-FSRS",
+        linewidth=2,
+        color="#00b050",
+        marker="o",
+    )
     # Special marker for the best (balanced) point
-    plt.plot(ssp_mmc_x[balanced_index], ssp_mmc_y[balanced_index], linewidth=2, color='#00b050', marker=(5, 1, 15),
-             ms=20)  # tilted star, like in Anki
-    plt.plot(fixed_dr_x, fixed_dr_y, label='Fixed DR (FSRS)', linewidth=2, color='#5b9bd5', marker='s')
-    plt.plot(other_x, other_y, label='Other scheduling policies', linewidth=2, linestyle='', color='red', marker='^',
-             ms=7.5)
-    plt.plot(fixed_intervals_x, fixed_intervals_y, label='Fixed intervals', linewidth=2, color='black', marker='x',
-             ms=7.5)
+    plt.plot(
+        ssp_mmc_x[balanced_index],
+        ssp_mmc_y[balanced_index],
+        linewidth=2,
+        color="#00b050",
+        marker=(5, 1, 15),
+        ms=20,
+    )  # tilted star, like in Anki
+    plt.plot(
+        fixed_dr_x,
+        fixed_dr_y,
+        label="Fixed DR (FSRS)",
+        linewidth=2,
+        color="#5b9bd5",
+        marker="s",
+    )
+    plt.plot(
+        other_x,
+        other_y,
+        label="Other scheduling policies",
+        linewidth=2,
+        linestyle="",
+        color="red",
+        marker="^",
+        ms=7.5,
+    )
+    plt.plot(
+        fixed_intervals_x,
+        fixed_intervals_y,
+        label="Fixed intervals",
+        linewidth=2,
+        color="black",
+        marker="x",
+        ms=7.5,
+    )
 
     # Round to the smallest two hundred
     x_min = 200 * np.floor((min([_[3] for _ in simulation_table]) / 200))
@@ -1169,31 +1767,78 @@ if __name__ == "__main__":
 
     # Annotate the best (balanced) point
     # Plus ten just to move it slightly to the right, because the special start marker is big
-    border_aware_text(x_min, x_max, y_min, y_max, ssp_mmc_x[balanced_index] + 10, ssp_mmc_y[balanced_index],
-                      'Balanced', fontsize=11)
+    border_aware_text(
+        x_min,
+        x_max,
+        y_min,
+        y_max,
+        ssp_mmc_x[balanced_index] + 10,
+        ssp_mmc_y[balanced_index],
+        "Balanced",
+        fontsize=11,
+    )
 
     # Annotate DR=70% and DR=99%
-    border_aware_text(x_min, x_max, y_min, y_max, fixed_dr_x[0], fixed_dr_y[0], f'{fixed_dr_titles[0]}', fontsize=11)
-    border_aware_text(x_min, x_max, y_min, y_max, fixed_dr_x[-1], fixed_dr_y[-1], f'{fixed_dr_titles[-1]}', fontsize=11)
+    border_aware_text(
+        x_min,
+        x_max,
+        y_min,
+        y_max,
+        fixed_dr_x[0],
+        fixed_dr_y[0],
+        f"{fixed_dr_titles[0]}",
+        fontsize=11,
+    )
+    border_aware_text(
+        x_min,
+        x_max,
+        y_min,
+        y_max,
+        fixed_dr_x[-1],
+        fixed_dr_y[-1],
+        f"{fixed_dr_titles[-1]}",
+        fontsize=11,
+    )
 
     # Annotate fixed intervals
     for n in range(len(fixed_intervals_x)):
-        border_aware_text(x_min, x_max, y_min, y_max, fixed_intervals_x[n], fixed_intervals_y[n],
-                          f'{fixed_intervals_titles[n]}', fontsize=11)
+        border_aware_text(
+            x_min,
+            x_max,
+            y_min,
+            y_max,
+            fixed_intervals_x[n],
+            fixed_intervals_y[n],
+            f"{fixed_intervals_titles[n]}",
+            fontsize=11,
+        )
 
     # Annotate other policies
     for n in range(len(other_x)):
-        border_aware_text(x_min, x_max, y_min, y_max, other_x[n], other_y[n],
-                          f'{other_titles[n]}', fontsize=11)
+        border_aware_text(
+            x_min,
+            x_max,
+            y_min,
+            y_max,
+            other_x[n],
+            other_y[n],
+            f"{other_titles[n]}",
+            fontsize=11,
+        )
 
-    plt.xlabel('Memorized cards (average, all days)\n(higher=better)', fontsize=18)
-    plt.ylabel('Memorized/hours spent (average, all days)\n(higher=better)', fontsize=18)
-    plt.xticks(fontsize=16, color='black')
-    plt.yticks(fontsize=16, color='black')
-    plt.title(f'Pareto frontier (duration of the simulation={LEARN_SPAN/365:.0f} years,'
-              f'\ndeck size={DECK_SIZE}, new cards/day=10, S_max={S_MAX/365:.0f} years', fontsize=24)
-    plt.grid(True, ls='--')
-    plt.legend(fontsize=18, loc='lower left', facecolor='white')
+    plt.xlabel("Memorized cards (average, all days)\n(higher=better)", fontsize=18)
+    plt.ylabel(
+        "Memorized/hours spent (average, all days)\n(higher=better)", fontsize=18
+    )
+    plt.xticks(fontsize=16, color="black")
+    plt.yticks(fontsize=16, color="black")
+    plt.title(
+        f"Pareto frontier (duration of the simulation={LEARN_SPAN/365:.0f} years,"
+        f"\ndeck size={DECK_SIZE}, new cards/day=10, S_max={S_MAX/365:.0f} years",
+        fontsize=24,
+    )
+    plt.grid(True, ls="--")
+    plt.legend(fontsize=18, loc="lower left", facecolor="white")
     plt.tight_layout()
     plt.savefig(f"./plot/Pareto frontier.png")
     plt.show()
