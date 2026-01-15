@@ -1521,7 +1521,19 @@ if __name__ == "__main__":
     for r in r_range:
         print("--------------------------------")
         start = time.time()
+        # Solver needs to be re-initialized each time
+        solver = SSPMMCSolver(
+            review_costs=DEFAULT_REVIEW_COSTS,
+            first_rating_prob=DEFAULT_FIRST_RATING_PROB,
+            review_rating_prob=DEFAULT_REVIEW_RATING_PROB,
+            first_rating_offsets=DEFAULT_FIRST_RATING_OFFSETS,
+            first_session_lens=DEFAULT_FIRST_SESSION_LENS,
+            forget_rating_offset=DEFAULT_FORGET_RATING_OFFSET,
+            forget_session_len=DEFAULT_FORGET_SESSION_LEN,
+            w=w,
+        )
         solver._init_state_spaces()
+        s_state_mesh_2d, d_state_mesh_2d = np.meshgrid(solver.s_state, solver.d_state)
         cost_matrix, r_state_mesh_2d = solver.evaluate_r_threshold(r)
         end = time.time()
         print(f"Time: {end - start:.2f}s")
