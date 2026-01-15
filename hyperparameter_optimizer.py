@@ -414,8 +414,8 @@ def advantage_maximizer(frontier, propose_candidate=False, print_for_script=Fals
                     better_param = better_candidate.get(key)
                     worse_param = worse_candidate.get(key)
 
-                    random_weight_better = float(np.random.uniform(1.5, 4, 1))
-                    random_weight_worse = float(np.random.uniform(0.7, 1, 1))
+                    random_weight_better = float(np.random.uniform(1.5, 4))
+                    random_weight_worse = float(np.random.uniform(0.7, 1))
 
                     # Assign more weight to the parameter from the better candidate
                     w_avg_param = (random_weight_better * better_param + random_weight_worse * worse_param) \
@@ -424,7 +424,7 @@ def advantage_maximizer(frontier, propose_candidate=False, print_for_script=Fals
                 elif strategy == 'mutate':
                     better_param = better_candidate.get(key)
 
-                    mutation = float(np.random.normal(0, 0.1, 1))
+                    mutation = float(np.random.normal(0, 0.1))
 
                     # Apply parameter-specific clamps
                     if key in ['a1', 'a2']:
