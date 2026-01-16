@@ -216,9 +216,9 @@ def simulate(
             stability_after_failure(stability, retrievability, difficulty),
             stability,
         )
-        stability = torch.where(
-            true_review & forget, stability_short_term(stability), stability
-        )
+        # stability = torch.where(
+        #     true_review & forget, stability_short_term(stability), stability
+        # )
         stability = torch.where(
             true_review & ~forget,
             stability_after_success(stability, retrievability, difficulty, rating),
