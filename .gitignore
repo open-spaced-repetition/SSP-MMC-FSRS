@@ -2,3 +2,8 @@
 __pycache__/
 test.ipynb
 policy/
+outputs/
+plot/
+simulation/
+notebooks/.ipynb_checkpoints/
+*.egg-info
