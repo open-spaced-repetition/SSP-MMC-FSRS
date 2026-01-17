@@ -16,19 +16,40 @@ uv sync
 uv sync --extra experiments
 ```
 
-Run the main experiment (generates plots, simulations, and policies under `outputs/`):
-
-```bash
-uv run python script.py
-```
-
-Run the hyperparameter optimizer (saves checkpoints under `outputs/checkpoints/`):
+Run the hyperparameter optimizer. It will generate a DR baseline at
+`outputs/checkpoints/dr_baseline.json` if missing, and write policy configs to
+`outputs/checkpoints/policy_configs.json`.
 
 ```bash
 uv run python hyperparameter_optimizer.py
 ```
 
-Run the convergence checks (defaults assume sibling repos exist, override with flags):
+Generate SSP-MMC policies and surface plots (required before simulating SSP-MMC):
+
+```bash
+uv run python experiments/generate_ssp_mmc_policies.py
+```
+
+Run the main simulation (generates plots and simulations under `outputs/`
+and refreshes the DR baseline JSON when DR policies are simulated):
+
+```bash
+uv run python script.py
+```
+
+The simulation summary is written to `outputs/checkpoints/simulation_results.json`.
+
+Optional flags for the experiment runner:
+
+```bash
+uv run python experiments/simulate.py --simulation-type lim_time_unlim_reviews
+uv run python experiments/simulate.py --policies all
+uv run python experiments/simulate.py --policies ssp-mmc,memrise,anki-sm-2
+uv run python experiments/simulate.py --policies dr,interval
+uv run python experiments/simulate.py --seed 123 --device cpu
+```
+
+Run the convergence checks (reads `outputs/checkpoints/policy_configs.json`; defaults assume sibling repos exist, override with flags):
 
 ```bash
 uv run python converge.py --help

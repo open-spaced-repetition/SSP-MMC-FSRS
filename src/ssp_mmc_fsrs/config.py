@@ -84,6 +84,9 @@ PLOTS_DIR = OUTPUTS_DIR / "plots"
 SIMULATION_DIR = OUTPUTS_DIR / "simulation"
 POLICIES_DIR = OUTPUTS_DIR / "policies"
 CHECKPOINTS_DIR = OUTPUTS_DIR / "checkpoints"
+POLICY_CONFIGS_PATH = CHECKPOINTS_DIR / "policy_configs.json"
+DR_BASELINE_PATH = CHECKPOINTS_DIR / "dr_baseline.json"
+SIMULATION_RESULTS_PATH = CHECKPOINTS_DIR / "simulation_results.json"
 
 
 def default_device():

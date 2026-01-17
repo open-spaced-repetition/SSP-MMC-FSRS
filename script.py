@@ -6,7 +6,7 @@ SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from experiments.run_experiment import main  # noqa: E402
+from experiments.simulate import main  # noqa: E402
 
 
 if __name__ == "__main__":

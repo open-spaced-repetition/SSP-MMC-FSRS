@@ -1,3 +1,4 @@
+import argparse
 import json
 import logging
 import os
@@ -29,15 +30,25 @@ from ssp_mmc_fsrs.config import (  # noqa: E402
     DEFAULT_REVIEW_RATING_PROB,
     DEFAULT_W,
     DECK_SIZE,
+    DR_BASELINE_PATH,
     LEARN_LIMIT_PER_DAY,
     LEARN_SPAN,
     MAX_STUDYING_TIME_PER_DAY,
     PARALLEL,
+    POLICY_CONFIGS_PATH,
+    R_MAX,
+    R_MIN,
     REVIEW_LIMIT_PER_DAY,
     S_MAX,
     default_device,
 )
 from ssp_mmc_fsrs.core import next_interval_torch  # noqa: E402
+from ssp_mmc_fsrs.io import (
+    load_dr_baseline,
+    save_dr_baseline,
+    save_policy_configs,
+)  # noqa: E402
+from ssp_mmc_fsrs.policies import create_dr_policy  # noqa: E402
 from ssp_mmc_fsrs.simulation import simulate  # noqa: E402
 from ssp_mmc_fsrs.solver import SSPMMCSolver  # noqa: E402
 
@@ -70,6 +81,24 @@ forget_rating_offset = DEFAULT_FORGET_RATING_OFFSET
 forget_session_len = DEFAULT_FORGET_SESSION_LEN
 
 DEVICE = default_device()
+_DR_BASELINE_CACHE = None
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Hyperparameter optimizer and DR baseline generator."
+    )
+    parser.add_argument(
+        "--dr-baseline-only",
+        action="store_true",
+        help="Only run DR simulations and write dr_baseline.json.",
+    )
+    parser.add_argument(
+        "--regen-dr-baseline",
+        action="store_true",
+        help="Regenerate dr_baseline.json before running optimizer.",
+    )
+    return parser.parse_args()
 
 
 def simulate_policy(policy):
@@ -92,6 +121,43 @@ def simulate_policy(policy):
     )
 
     return review_cnt_per_day, cost_per_day, memorized_cnt_per_day
+
+
+def generate_dr_baseline():
+    dr_baseline = []
+    r_range = np.arange(R_MIN, R_MAX, 0.01)
+    for r in r_range:
+        dr_policy = create_dr_policy(r)
+        _, cost_per_day, memorized_cnt_per_day = simulate_policy(dr_policy)
+        accum_cost = np.cumsum(cost_per_day, axis=-1)
+        accum_time_average = accum_cost.mean() / 3600
+        memorized_average = memorized_cnt_per_day.mean()
+        avg_accum_memorized_per_hour = memorized_average / accum_time_average
+        dr_baseline.append(
+            {
+                "dr": float(r),
+                "average_knowledge": float(memorized_average),
+                "average_knowledge_per_hour": float(avg_accum_memorized_per_hour),
+            }
+        )
+    save_dr_baseline(dr_baseline, DR_BASELINE_PATH)
+    print(f"Saved DR baseline to {DR_BASELINE_PATH}")
+    return dr_baseline
+
+
+def get_dr_baseline(force=False):
+    global _DR_BASELINE_CACHE
+    if _DR_BASELINE_CACHE is not None and not force:
+        return _DR_BASELINE_CACHE
+    if force:
+        dr_baseline = generate_dr_baseline()
+    else:
+        try:
+            dr_baseline = load_dr_baseline(DR_BASELINE_PATH)
+        except FileNotFoundError:
+            dr_baseline = generate_dr_baseline()
+    _DR_BASELINE_CACHE = dr_baseline
+    return dr_baseline
 
 
 def multi_objective_function(param_dict):
@@ -315,7 +381,19 @@ def pareto(frontier, calc_knee=False):
 
 
 def advantage_maximizer(frontier, propose_candidate=False, print_for_script=False):
+    dr_baseline = get_dr_baseline()
+
+    twod_list_dr = [
+        [
+            entry["dr"],
+            entry["average_knowledge"],
+            entry["average_knowledge_per_hour"],
+        ]
+        for entry in dr_baseline
+    ]
+
     twod_list_ssp_mmc = []
+    max_diff_params = None
 
     for number, dictionary in list(frontier.items()):
         params = dictionary[0]
@@ -355,39 +433,6 @@ def advantage_maximizer(frontier, propose_candidate=False, print_for_script=Fals
 
     twod_list_ssp_mmc = sorted(twod_list_ssp_mmc, key=lambda x: x[1])
 
-    twod_list_dr = [
-        [0.70, 6038, 24.4],
-        [0.71, 6084, 24.3],
-        [0.72, 6131, 24.5],
-        [0.73, 6177, 24.4],
-        [0.74, 6222, 24.2],
-        [0.75, 6267, 24.1],
-        [0.76, 6312, 24.0],
-        [0.77, 6356, 23.8],
-        [0.78, 6399, 23.7],
-        [0.79, 6442, 23.5],
-        [0.80, 6485, 23.2],
-        [0.81, 6526, 22.9],
-        [0.82, 6568, 22.6],
-        [0.83, 6609, 22.3],
-        [0.84, 6649, 21.9],
-        [0.85, 6689, 21.5],
-        [0.86, 6729, 21.0],
-        [0.87, 6769, 20.5],
-        [0.88, 6808, 19.8],
-        [0.89, 6846, 19.2],
-        [0.90, 6885, 18.5],
-        [0.91, 6922, 17.7],
-        [0.92, 6960, 16.7],
-        [0.93, 6998, 15.7],
-        [0.94, 7035, 14.4],
-        [0.95, 7072, 13.0],
-        [0.96, 7108, 11.4],
-        [0.97, 7145, 9.4],
-        [0.98, 7181, 7.1],
-        [0.99, 7217, 4.1],
-    ]
-
     dr_differences = []
     dr_pairs = []
     crappy_ssp_mmc_indices = []
@@ -422,7 +467,7 @@ def advantage_maximizer(frontier, propose_candidate=False, print_for_script=Fals
             print(f"    You get the efficiency of DR={100 * max_diff_drs[1]:.0f}%")
             print("")
 
-    configurations = []
+    policy_configs = []
     if print_for_script:
         for dr_list in twod_list_dr:
             abs_knowledge_differences = []
@@ -432,18 +477,20 @@ def advantage_maximizer(frontier, propose_candidate=False, print_for_script=Fals
             closest_index = abs_knowledge_differences.index(min(abs_knowledge_differences))
             closest_params = twod_list_ssp_mmc[closest_index][0]
 
-            if closest_params == max_diff_params[0]:
-                entry = [closest_params, "Balanced"]
+            if max_diff_params is not None and closest_params == max_diff_params[0]:
+                entry = {"params": closest_params, "label": "Balanced"}
             else:
-                entry = [closest_params, None]
+                entry = {"params": closest_params, "label": None}
 
-            if entry not in configurations:
-                configurations.append(entry)
+            if entry not in policy_configs:
+                policy_configs.append(entry)
 
-        configurations.reverse()
-        configurations[0][1] = "Maximum knowledge"
-        configurations[-1][1] = "Maximum efficiency"
-        print(f"list_of_dictionaries = {configurations}")
+        policy_configs.reverse()
+        if policy_configs:
+            policy_configs[0]["label"] = "Maximum knowledge"
+            policy_configs[-1]["label"] = "Maximum efficiency"
+        print(json.dumps(policy_configs, indent=2, sort_keys=True))
+        return policy_configs
 
     if propose_candidate:
         if len(crappy_ssp_mmc_indices) == 0:
@@ -491,6 +538,8 @@ def advantage_maximizer(frontier, propose_candidate=False, print_for_script=Fals
         print(f"Manually proposed new candidate: {new_candidate}")
         return new_candidate
 
+    return None
+
 
 printed_flag = False
 if completed_trials < total_trials:
@@ -523,6 +572,57 @@ if completed_trials < total_trials:
         with DelayedKeyboardInterrupt():
             ax.save_to_json_file(checkpoint_filename)
 
-frontier = ax.get_pareto_optimal_parameters()
-pareto(frontier)
-advantage_maximizer(frontier, print_for_script=True)
+def run_optimizer():
+    global completed_trials
+
+    printed_flag = False
+    if completed_trials < total_trials:
+        for i in range(completed_trials, total_trials):
+            if loaded_flag and not printed_flag:
+                frontier = ax.get_pareto_optimal_parameters()
+                pareto(frontier)
+                advantage_maximizer(frontier)
+                printed_flag = True
+            elif i > 0 and i % 5 == 0:
+                frontier = ax.get_pareto_optimal_parameters()
+                pareto(frontier)
+                advantage_maximizer(frontier)
+
+            print(f"Starting trial {i}/{total_trials}")
+            if i >= 40 and i % 10 == 0:
+                frontier = ax.get_pareto_optimal_parameters()
+                parameters = advantage_maximizer(frontier, propose_candidate=True)
+                if parameters is not None:
+                    trial_indices = ax.attach_trial(parameters=parameters)
+                    trial_index = trial_indices[1]
+                else:
+                    parameters, trial_index = ax.get_next_trial()
+            else:
+                parameters, trial_index = ax.get_next_trial()
+
+            torch.cuda.empty_cache()
+            ax.complete_trial(trial_index=trial_index, raw_data=multi_objective_function(parameters))
+
+            with DelayedKeyboardInterrupt():
+                ax.save_to_json_file(checkpoint_filename)
+
+    frontier = ax.get_pareto_optimal_parameters()
+    pareto(frontier)
+    policy_configs = advantage_maximizer(frontier, print_for_script=True)
+    if policy_configs:
+        save_policy_configs(policy_configs, POLICY_CONFIGS_PATH)
+        print(f"Saved policy configs to {POLICY_CONFIGS_PATH}")
+
+
+def main():
+    args = parse_args()
+    if args.dr_baseline_only:
+        generate_dr_baseline()
+        return
+    if args.regen_dr_baseline:
+        get_dr_baseline(force=True)
+    run_optimizer()
+
+
+if __name__ == "__main__":
+    main()

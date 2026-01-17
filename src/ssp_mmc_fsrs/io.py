@@ -15,6 +15,9 @@ from .config import (
     DEFAULT_REVIEW_COSTS,
     DEFAULT_REVIEW_RATING_PROB,
     DEFAULT_W,
+    DR_BASELINE_PATH,
+    POLICY_CONFIGS_PATH,
+    SIMULATION_RESULTS_PATH,
     default_device,
 )
 from .core import next_interval_torch
@@ -224,3 +227,74 @@ def load_policy(policy_path, device=None):
         "cost_matrix": cost_matrix,
         "meta": meta,
     }
+
+
+def save_policy_configs(policy_configs, path=POLICY_CONFIGS_PATH):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as f:
+        json.dump(policy_configs, f, indent=2, sort_keys=True)
+
+
+def load_policy_configs(path=POLICY_CONFIGS_PATH):
+    path = Path(path)
+    with path.open("r") as f:
+        policy_configs = json.load(f)
+    if not isinstance(policy_configs, list):
+        raise ValueError(f"Policy configs must be a list: {path}")
+    for entry in policy_configs:
+        if not isinstance(entry, dict) or "params" not in entry:
+            raise ValueError(f"Invalid policy config entry in {path}: {entry}")
+    return policy_configs
+
+
+def save_dr_baseline(dr_baseline, path=DR_BASELINE_PATH):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as f:
+        json.dump(dr_baseline, f, indent=2, sort_keys=True)
+
+
+def load_dr_baseline(path=DR_BASELINE_PATH):
+    path = Path(path)
+    with path.open("r") as f:
+        dr_baseline = json.load(f)
+    if not isinstance(dr_baseline, list):
+        raise ValueError(f"DR baseline must be a list: {path}")
+    for entry in dr_baseline:
+        if not isinstance(entry, dict):
+            raise ValueError(f"Invalid DR baseline entry in {path}: {entry}")
+        missing = {"dr", "average_knowledge", "average_knowledge_per_hour"} - set(
+            entry.keys()
+        )
+        if missing:
+            raise ValueError(f"Missing {missing} in DR baseline entry: {entry}")
+    return dr_baseline
+
+
+def save_simulation_results(simulation_results, path=SIMULATION_RESULTS_PATH):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as f:
+        json.dump(simulation_results, f, indent=2, sort_keys=True)
+
+
+def load_simulation_results(path=SIMULATION_RESULTS_PATH):
+    path = Path(path)
+    with path.open("r") as f:
+        simulation_results = json.load(f)
+    if not isinstance(simulation_results, list):
+        raise ValueError(f"Simulation results must be a list: {path}")
+    for entry in simulation_results:
+        if not isinstance(entry, dict):
+            raise ValueError(f"Invalid simulation result entry in {path}: {entry}")
+        missing = {
+            "title",
+            "reviews_average",
+            "time_average",
+            "memorized_average",
+            "avg_accum_memorized_per_hour",
+        } - set(entry.keys())
+        if missing:
+            raise ValueError(f"Missing {missing} in simulation result entry: {entry}")
+    return simulation_results

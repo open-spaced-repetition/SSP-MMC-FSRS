@@ -15,7 +15,8 @@ SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from ssp_mmc_fsrs.config import CHECKPOINTS_DIR  # noqa: E402
+from ssp_mmc_fsrs.config import CHECKPOINTS_DIR, POLICY_CONFIGS_PATH  # noqa: E402
+from ssp_mmc_fsrs.io import load_policy_configs  # noqa: E402
 from ssp_mmc_fsrs.solver import SSPMMCSolver  # noqa: E402
 
 
@@ -88,7 +89,7 @@ def save_results(processed_users, unconverged_users, filename: Path):
             json.dump(data, f, indent=2)
 
 
-def test_user(user_id, simulator_configs, parameters):
+def test_user(user_id, simulator_configs, parameters, policy_configs):
     review_costs = np.array(simulator_configs[user_id]["review_costs"])
     first_rating_prob = np.array(simulator_configs[user_id]["first_rating_prob"])
     review_rating_prob = np.array(simulator_configs[user_id]["review_rating_prob"])
@@ -98,34 +99,7 @@ def test_user(user_id, simulator_configs, parameters):
     forget_session_len = simulator_configs[user_id]["forget_session_len"]
     w = parameters[user_id]["parameters"]["0"]
 
-    list_of_dictionaries = [
-        [{'a0': 'log', 'a1': 1.04, 'a2': 10.0, 'a3': 4.14, 'a4': 1.15, 'a5': 0.03, 'a6': -5.0, 'a7': -1.03, 'a8': 5.0}, 'Maximum knowledge'],
-        [{'a0': 'log', 'a1': 1.37, 'a2': 10.0, 'a3': 1.24, 'a4': -5.0, 'a5': -5.0, 'a6': -5.0, 'a7': 5.0, 'a8': 5.0}, None],
-        [{'a0': 'log', 'a1': 1.24, 'a2': 10.0, 'a3': 3.16, 'a4': 1.29, 'a5': -1.61, 'a6': -5.0, 'a7': 0.24, 'a8': 5.0}, None],
-        [{'a0': 'log', 'a1': 1.33, 'a2': 1.49, 'a3': -1.2, 'a4': -5.0, 'a5': -5.0, 'a6': -5.0, 'a7': 5.0, 'a8': 5.0}, None],
-        [{'a0': 'log', 'a1': 1.23, 'a2': 10.0, 'a3': 3.98, 'a4': 2.46, 'a5': -0.16, 'a6': -5.0, 'a7': -3.18, 'a8': 5.0}, None],
-        [{'a0': 'no_log', 'a1': 0.1, 'a2': 0.1, 'a3': 5.0, 'a4': 3.44, 'a5': -3.71, 'a6': -5.0, 'a7': -3.1, 'a8': -5.0}, None],
-        [{'a0': 'log', 'a1': 1.61, 'a2': 9.83, 'a3': -0.83, 'a4': -5.0, 'a5': -5.0, 'a6': -5.0, 'a7': 4.7, 'a8': 5.0}, None],
-        [{'a0': 'no_log', 'a1': 0.14, 'a2': 0.1, 'a3': 5.0, 'a4': 5.0, 'a5': -5.0, 'a6': -5.0, 'a7': -2.67, 'a8': -5.0}, None],
-        [{'a0': 'no_log', 'a1': 0.17, 'a2': 0.1, 'a3': 5.0, 'a4': 5.0, 'a5': -4.55, 'a6': -5.0, 'a7': -3.46, 'a8': -5.0}, None],
-        [{'a0': 'no_log', 'a1': 0.18, 'a2': 0.1, 'a3': 5.0, 'a4': 5.0, 'a5': -4.69, 'a6': -5.0, 'a7': -3.56, 'a8': -5.0}, None],
-        [{'a0': 'no_log', 'a1': 0.18, 'a2': 0.11, 'a3': 5.0, 'a4': 5.0, 'a5': -4.73, 'a6': -5.0, 'a7': -3.6, 'a8': -5.0}, None],
-        [{'a0': 'no_log', 'a1': 0.19, 'a2': 0.11, 'a3': 5.0, 'a4': 5.0, 'a5': -5.0, 'a6': -5.0, 'a7': -3.81, 'a8': -5.0}, None],
-        [{'a0': 'no_log', 'a1': 0.19, 'a2': 0.11, 'a3': 5.0, 'a4': 5.0, 'a5': -5.0, 'a6': -5.0, 'a7': -3.95, 'a8': -5.0}, None],
-        [{'a0': 'log', 'a1': 2.84, 'a2': 10.0, 'a3': 1.45, 'a4': 1.69, 'a5': 0.7, 'a6': -5.0, 'a7': -1.74, 'a8': 2.2}, None],
-        [{'a0': 'log', 'a1': 2.71, 'a2': 4.47, 'a3': 1.55, 'a4': 2.23, 'a5': 0.15, 'a6': -5.0, 'a7': -1.41, 'a8': 5.0}, None],
-        [{'a0': 'log', 'a1': 3.94, 'a2': 10.0, 'a3': 0.96, 'a4': 1.36, 'a5': -0.4, 'a6': -5.0, 'a7': -2.14, 'a8': 2.31}, None],
-        [{'a0': 'log', 'a1': 6.78, 'a2': 8.31, 'a3': -2.59, 'a4': -5.0, 'a5': -2.6, 'a6': -5.0, 'a7': 0.67, 'a8': 5.0}, None],
-        [{'a0': 'log', 'a1': 1.84, 'a2': 0.27, 'a3': 5.0, 'a4': 2.01, 'a5': -2.97, 'a6': -5.0, 'a7': -3.91, 'a8': 5.0}, None],
-        [{'a0': 'log', 'a1': 10.0, 'a2': 0.34, 'a3': 4.78, 'a4': -0.86, 'a5': -0.85, 'a6': -5.0, 'a7': -3.98, 'a8': 5.0}, None],
-        [{'a0': 'no_log', 'a1': 10.0, 'a2': 0.1, 'a3': 5.0, 'a4': 4.19, 'a5': -0.96, 'a6': -3.01, 'a7': -3.18, 'a8': 5.0}, 'Balanced'],
-        [{'a0': 'no_log', 'a1': 0.11, 'a2': 0.64, 'a3': -2.31, 'a4': 5.0, 'a5': 5.0, 'a6': -1.52, 'a7': -1.01, 'a8': 5.0}, None],
-        [{'a0': 'no_log', 'a1': 4.34, 'a2': 0.1, 'a3': 3.39, 'a4': 5.0, 'a5': -2.2, 'a6': 5.0, 'a7': -3.3, 'a8': 5.0}, None],
-        [{'a0': 'log', 'a1': 10.0, 'a2': 0.37, 'a3': 3.06, 'a4': 0.91, 'a5': -1.15, 'a6': -5.0, 'a7': -4.53, 'a8': 5.0}, None],
-        [{'a0': 'no_log', 'a1': 0.1, 'a2': 0.1, 'a3': 2.9, 'a4': 5.0, 'a5': -3.79, 'a6': 5.0, 'a7': -2.2, 'a8': 1.33}, 'Maximum efficiency'],
-    ]
-
-    for entry in list_of_dictionaries:
+    for entry in policy_configs:
         solver = SSPMMCSolver(
             review_costs,
             first_rating_prob,
@@ -137,7 +111,7 @@ def test_user(user_id, simulator_configs, parameters):
             w,
         )
 
-        hyperparams = entry[0]
+        hyperparams = entry["params"]
         cost_matrix, _ = solver.solve(hyperparams)
 
         actual_max = np.max(cost_matrix)
@@ -175,9 +149,19 @@ def main():
 
     print(f"Processing {len(remaining_users)} remaining users")
 
+    try:
+        policy_configs = load_policy_configs(POLICY_CONFIGS_PATH)
+    except FileNotFoundError as exc:
+        raise SystemExit(
+            f"Missing policy configs at {POLICY_CONFIGS_PATH}. "
+            "Run the hyperparameter optimizer to generate them."
+        ) from exc
+
     with ProcessPoolExecutor(max_workers=args.workers) as executor:
         future_to_user = {
-            executor.submit(test_user, user_id, simulator_configs, parameters): user_id
+            executor.submit(
+                test_user, user_id, simulator_configs, parameters, policy_configs
+            ): user_id
             for user_id in remaining_users
         }
 
