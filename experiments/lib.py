@@ -542,49 +542,55 @@ def save_dr_baseline_from_results(results_path, path):
     print(f"Saved DR baseline to {path}")
 
 
+def _categorize_plot_data(simulation_results):
+    categorized = {
+        "ssp_mmc": {"titles": [], "x": [], "y": []},
+        "fixed_dr": {"titles": [], "x": [], "y": []},
+        "fixed_intervals": {"titles": [], "x": [], "y": []},
+        "other": {"titles": [], "x": [], "y": []},
+    }
+    for entry in simulation_results:
+        title = entry["title"]
+        memorized_average = entry["memorized_average"]
+        avg_accum_memorized_per_hour = entry["avg_accum_memorized_per_hour"]
+
+        if "SSP-MMC" in title:
+            bucket = categorized["ssp_mmc"]
+        elif "DR" in title:
+            bucket = categorized["fixed_dr"]
+        elif "Interval" in title:
+            bucket = categorized["fixed_intervals"]
+        else:
+            bucket = categorized["other"]
+
+        bucket["titles"].append(title)
+        bucket["x"].append(memorized_average)
+        bucket["y"].append(avg_accum_memorized_per_hour)
+
+    return categorized
+
+
 def plot_pareto_frontier(results_path, policy_configs):
     simulation_results = load_simulation_results(results_path)
     if not simulation_results:
         print(f"No simulation results found at {results_path}. Skipping Pareto plot.")
         return
-    ssp_mmc_titles = []
-    ssp_mmc_x = []
-    ssp_mmc_y = []
+    categorized = _categorize_plot_data(simulation_results)
+    ssp_mmc_titles = categorized["ssp_mmc"]["titles"]
+    ssp_mmc_x = categorized["ssp_mmc"]["x"]
+    ssp_mmc_y = categorized["ssp_mmc"]["y"]
 
-    fixed_dr_titles = []
-    fixed_dr_x = []
-    fixed_dr_y = []
+    fixed_dr_titles = categorized["fixed_dr"]["titles"]
+    fixed_dr_x = categorized["fixed_dr"]["x"]
+    fixed_dr_y = categorized["fixed_dr"]["y"]
 
-    fixed_intervals_titles = []
-    fixed_intervals_x = []
-    fixed_intervals_y = []
+    fixed_intervals_titles = categorized["fixed_intervals"]["titles"]
+    fixed_intervals_x = categorized["fixed_intervals"]["x"]
+    fixed_intervals_y = categorized["fixed_intervals"]["y"]
 
-    other_titles = []
-    other_x = []
-    other_y = []
-
-    for entry in simulation_results:
-        title = entry["title"]
-        reviews_average = entry["reviews_average"]
-        time_average = entry["time_average"]
-        memorized_average = entry["memorized_average"]
-        avg_accum_memorized_per_hour = entry["avg_accum_memorized_per_hour"]
-        if "SSP-MMC" in title:
-            ssp_mmc_titles.append(title)
-            ssp_mmc_x.append(memorized_average)
-            ssp_mmc_y.append(avg_accum_memorized_per_hour)
-        elif "DR" in title:
-            fixed_dr_titles.append(title)
-            fixed_dr_x.append(memorized_average)
-            fixed_dr_y.append(avg_accum_memorized_per_hour)
-        elif "Interval" in title:
-            fixed_intervals_titles.append(title)
-            fixed_intervals_x.append(memorized_average)
-            fixed_intervals_y.append(avg_accum_memorized_per_hour)
-        else:
-            other_titles.append(title)
-            other_x.append(memorized_average)
-            other_y.append(avg_accum_memorized_per_hour)
+    other_titles = categorized["other"]["titles"]
+    other_x = categorized["other"]["x"]
+    other_y = categorized["other"]["y"]
 
     assert len(ssp_mmc_x) == len(ssp_mmc_y), f"{len(ssp_mmc_x)}, {len(ssp_mmc_y)}"
     assert len(fixed_dr_x) == len(fixed_dr_y), f"{len(fixed_dr_x)}, {len(fixed_dr_y)}"
