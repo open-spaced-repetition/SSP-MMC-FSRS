@@ -16,7 +16,7 @@ from ssp_mmc_fsrs.config import (  # noqa: E402
     default_device,
 )
 from ssp_mmc_fsrs.io import load_policy_configs  # noqa: E402
-from experiments.run_experiment_lib import (  # noqa: E402
+from experiments.lib import (  # noqa: E402
     normalize_policy_list,
     run_experiment,
     setup_environment,

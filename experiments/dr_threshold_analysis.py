@@ -9,7 +9,7 @@ for path in (ROOT_DIR, SRC_DIR):
         sys.path.insert(0, str(path))
 
 from ssp_mmc_fsrs.config import DEFAULT_SEED, DEFAULT_W  # noqa: E402
-from experiments.run_experiment_lib import (  # noqa: E402
+from experiments.lib import (  # noqa: E402
     ensure_output_dirs,
     evaluate_dr_thresholds,
     plot_cost_vs_retention,

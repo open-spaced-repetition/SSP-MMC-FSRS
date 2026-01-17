@@ -10,7 +10,7 @@ for path in (ROOT_DIR, SRC_DIR):
 
 from ssp_mmc_fsrs.config import DEFAULT_SEED, DEFAULT_W, POLICY_CONFIGS_PATH  # noqa: E402
 from ssp_mmc_fsrs.io import load_policy_configs  # noqa: E402
-from experiments.run_experiment_lib import (  # noqa: E402
+from experiments.lib import (  # noqa: E402
     ensure_output_dirs,
     generate_ssp_mmc_policies,
     setup_environment,
