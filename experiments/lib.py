@@ -1,4 +1,5 @@
 from pathlib import Path
+import hashlib
 import json
 import logging
 import signal
@@ -244,9 +245,20 @@ def plot_policy_surfaces(solver, cost_matrix, retention_matrix, avg_cost, avg_re
     return fig
 
 
+def _policy_hash(params):
+    normalized = _jsonify_params(params)
+    payload = json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    return hashlib.sha1(payload).hexdigest()[:8]
+
+
 def ssp_mmc_title(policy_config):
     label = policy_config.get("label")
-    return f"SSP-MMC-FSRS ({label})" if label else "SSP-MMC-FSRS"
+    policy_id = _policy_hash(policy_config["params"])
+    if label:
+        return f"SSP-MMC-FSRS ({label}, {policy_id})"
+    return f"SSP-MMC-FSRS ({policy_id})"
 
 
 def _jsonify_params(params):

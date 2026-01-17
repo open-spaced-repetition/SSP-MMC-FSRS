@@ -30,6 +30,11 @@ Generate SSP-MMC policies and surface plots (required before simulating SSP-MMC)
 uv run experiments/generate_ssp_mmc_policies.py
 ```
 
+SSP-MMC-FSRS policy titles include a short hash derived from the hyperparameters so
+simulation results don't overwrite each other. If you change hyperparameters or
+pull updates that affect policy serialization, regenerate policies before running
+simulations.
+
 Run the main simulation (generates plots and simulations under `outputs/`
 and refreshes the DR baseline JSON when DR policies are simulated):
 
