@@ -115,7 +115,7 @@ def normalize_policy_list(policies):
 
 
 def simulate_policy_factory(w, device, learn_limit_per_day, max_studying_time_per_day):
-    def simulate_policy(policy):
+    def simulate_policy(policy, label=None):
         (
             review_cnt_per_day,
             _,
@@ -132,6 +132,7 @@ def simulate_policy_factory(w, device, learn_limit_per_day, max_studying_time_pe
             review_limit_perday=REVIEW_LIMIT_PER_DAY,
             max_cost_perday=max_studying_time_per_day,
             s_max=S_MAX,
+            progress_desc=label,
         )
 
         return review_cnt_per_day, cost_per_day, memorized_cnt_per_day
@@ -173,7 +174,9 @@ def update_simulation_results(result, results_path):
 
 
 def plot_simulation(policy, title, results_path, simulate_policy):
-    review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(policy)
+    review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(
+        policy, title
+    )
 
     metrics = compute_simulation_metrics(
         review_cnt_per_day, cost_per_day, memorized_cnt_per_day

@@ -70,6 +70,7 @@ def simulate(
     forget_session_len=DEFAULT_FORGET_SESSION_LEN,
     seed=42,
     s_max=math.inf,
+    progress_desc=None,
 ):
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -151,7 +152,7 @@ def simulate(
     def mean_reversion(init, current):
         return w[7] * init + (1 - w[7]) * current
 
-    for today in trange(learn_span, position=1, leave=False):
+    for today in trange(learn_span, position=1, leave=False, desc=progress_desc):
         has_learned = stability > 1e-10
         delta_t = torch.where(has_learned, today - last_date, delta_t)
         retrievability = torch.where(
