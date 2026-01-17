@@ -13,8 +13,9 @@ from ax.service.utils.instantiation import ObjectiveProperties
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SRC_DIR = ROOT_DIR / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+for path in (ROOT_DIR, SRC_DIR):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
 from ssp_mmc_fsrs.config import (  # noqa: E402
     CHECKPOINTS_DIR,
@@ -67,6 +68,10 @@ _DR_BASELINE_CACHE = None
 MANUAL_CANDIDATE_START_TRIAL = 40
 # Propose a new candidate every N trials.
 MANUAL_CANDIDATE_INTERVAL = 10
+# Treat the Pareto frontier as stable after this many unchanged checks.
+PARETO_STABILITY_PATIENCE = 3
+# Check Pareto stability every N trials.
+PARETO_CHECK_INTERVAL = 5
 
 
 def parse_args():
@@ -517,6 +522,14 @@ def _propose_new_candidate(twod_list_ssp_mmc, crappy_ssp_mmc_indices):
     return new_candidate
 
 
+def _frontier_signature(frontier):
+    param_signatures = []
+    for _, payload in frontier.items():
+        params = payload[0]
+        param_signatures.append(json.dumps(params, sort_keys=True))
+    return tuple(sorted(param_signatures))
+
+
 def advantage_maximizer(frontier, propose_candidate=False, print_for_script=False):
     twod_list_dr = _dr_baseline_points()
     twod_list_ssp_mmc = _extract_ssp_mmc_points(frontier)
@@ -549,17 +562,32 @@ def run_optimizer():
     global completed_trials
 
     printed_flag = False
+    stable_frontier_checks = 0
+    previous_frontier_signature = None
     if completed_trials < total_trials:
         for i in range(completed_trials, total_trials):
             if loaded_flag and not printed_flag:
                 frontier = ax.get_pareto_optimal_parameters()
                 pareto(frontier)
                 advantage_maximizer(frontier)
+                previous_frontier_signature = _frontier_signature(frontier)
                 printed_flag = True
-            elif i > 0 and i % 5 == 0:
+            elif i > 0 and i % PARETO_CHECK_INTERVAL == 0:
                 frontier = ax.get_pareto_optimal_parameters()
                 pareto(frontier)
                 advantage_maximizer(frontier)
+                frontier_signature = _frontier_signature(frontier)
+                if frontier_signature == previous_frontier_signature:
+                    stable_frontier_checks += 1
+                else:
+                    stable_frontier_checks = 0
+                    previous_frontier_signature = frontier_signature
+                if stable_frontier_checks >= PARETO_STABILITY_PATIENCE:
+                    print(
+                        "Pareto frontier appears stable. "
+                        "Stopping early to avoid redundant trials."
+                    )
+                    break
 
             print(f"Starting trial {i}/{total_trials}")
             if (

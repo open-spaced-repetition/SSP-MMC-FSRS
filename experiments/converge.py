@@ -9,8 +9,9 @@ from tqdm import tqdm
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SRC_DIR = ROOT_DIR / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+for path in (ROOT_DIR, SRC_DIR):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
 from ssp_mmc_fsrs.config import CHECKPOINTS_DIR, POLICY_CONFIGS_PATH  # noqa: E402
 from ssp_mmc_fsrs.io import load_policy_configs  # noqa: E402
