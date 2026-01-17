@@ -1,4 +1,5 @@
 import numpy as np
+import time
 import torch
 
 from .config import (
@@ -29,6 +30,7 @@ def bellman_solver(
 ):
     if device is None:
         device = default_device()
+    start = time.perf_counter()
     S, D, R = costs_np[0].shape
     dtype = torch.float32
     with torch.inference_mode():
@@ -51,7 +53,7 @@ def bellman_solver(
         ]
         it = 0
         cost_diff = 1e9
-        while it < n_iter and cost_diff > 1e-5:
+        while it < n_iter and cost_diff > 0.1:
             it += 1
 
             action_value = torch.zeros((S, D, R), device=device, dtype=dtype)
@@ -63,10 +65,13 @@ def bellman_solver(
 
             optimal_value, optimal_action = action_value.min(dim=-1)
             optimal_value = torch.minimum(state, optimal_value)
-            cost_diff = torch.abs(optimal_value - state).sum().item()
+            check_interval = 10 if it <= 100 else 25
+            if it % check_interval == 0:
+                cost_diff = torch.abs(optimal_value - state).max().item()
             state = optimal_value
 
-    print(f"Done. it: {it}, cost diff: {cost_diff}")
+    end = time.perf_counter()
+    print(f"Done in {end - start:.1f} seconds. Iterations: {it}/{n_iter}, cost diff: {cost_diff}")
     return state.cpu().numpy(), optimal_action.cpu().numpy()
 
 

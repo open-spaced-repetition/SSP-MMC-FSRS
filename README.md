@@ -106,8 +106,8 @@ The best result is highlighted in **bold**. Arrows indicate whether lower (↓) 
 | SSP-MMC-FSRS (e78a300e) | 218.6 | 34.3 | 7075 | 14.3 |
 | SSP-MMC-FSRS (04628d8c) | 186.4 | 29.7 | 7038 | 15.3 |
 | SSP-MMC-FSRS (fe461908) | 178.0 | 28.4 | 6993 | 15.2 |
-| SSP-MMC-FSRS (39e4714a) | 145.1 | 24.4 | 6922 | 17.9 |
-| SSP-MMC-FSRS (42dae601) | 111.3 | 20.3 | 6780 | 20.6 |
+| SSP-MMC-FSRS (39e4714a) | 145.0 | 24.4 | 6921 | 17.9 |
+| SSP-MMC-FSRS (42dae601) | 111.2 | 20.3 | 6778 | 20.6 |
 | SSP-MMC-FSRS (55f88a33) | 107.8 | 19.7 | 6704 | 20.3 |
 | SSP-MMC-FSRS (6e6d529f) | 104.1 | 19.2 | 6682 | 20.7 |
 | SSP-MMC-FSRS (d30e3e22) | 95.2 | 18.3 | 6659 | 22.1 |
@@ -119,7 +119,7 @@ The best result is highlighted in **bold**. Arrows indicate whether lower (↓) 
 | SSP-MMC-FSRS (3be3d6ea) | 70.7 | 15.4 | 6336 | 24.6 |
 | SSP-MMC-FSRS (Balanced, 4c30764a) | 68.0 | 15.0 | 6282 | 24.7 |
 | SSP-MMC-FSRS (a4dc82b8) | 65.6 | 14.7 | 6226 | **24.9** |
-| SSP-MMC-FSRS (6dc7ee05) | 64.2 | 14.4 | 6172 | **24.9** |
+| SSP-MMC-FSRS (6dc7ee05) | 64.3 | 14.4 | 6172 | **24.9** |
 | SSP-MMC-FSRS (a24264e0) | 61.8 | **14.3** | 6083 | 24.8 |
 | SSP-MMC-FSRS (Maximum efficiency, bd44b831) | 61.7 | **14.3** | 6050 | 24.6 |
 | Memrise | 109.1 | 20.2 | 6623 | 20.4 |
