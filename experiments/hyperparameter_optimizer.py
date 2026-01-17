@@ -361,10 +361,9 @@ def pareto(frontier, calc_knee=False):
     print("")
 
 
-def advantage_maximizer(frontier, propose_candidate=False, print_for_script=False):
+def _dr_baseline_points():
     dr_baseline = get_dr_baseline()
-
-    twod_list_dr = [
+    return [
         [
             entry["dr"],
             entry["average_knowledge"],
@@ -373,51 +372,40 @@ def advantage_maximizer(frontier, propose_candidate=False, print_for_script=Fals
         for entry in dr_baseline
     ]
 
-    twod_list_ssp_mmc = []
-    max_diff_params = None
 
-    for number, dictionary in list(frontier.items()):
+def _extract_ssp_mmc_points(frontier):
+    twod_list_ssp_mmc = []
+    for _, dictionary in list(frontier.items()):
         params = dictionary[0]
-        a0, a1, a2, a3, a4, a5, a6, a7, a8 = (
-            params["a0"],
-            params["a1"],
-            params["a2"],
-            params["a3"],
-            params["a4"],
-            params["a5"],
-            params["a6"],
-            params["a7"],
-            params["a8"],
-        )
         average_knowledge, average_knowledge_per_hour = (
             dictionary[1][0]["average_knowledge"],
             dictionary[1][0]["average_knowledge_per_hour"],
         )
-
         twod_list_ssp_mmc.append(
             [
                 {
-                    "a0": a0,
-                    "a1": a1,
-                    "a2": a2,
-                    "a3": a3,
-                    "a4": a4,
-                    "a5": a5,
-                    "a6": a6,
-                    "a7": a7,
-                    "a8": a8,
+                    "a0": params["a0"],
+                    "a1": params["a1"],
+                    "a2": params["a2"],
+                    "a3": params["a3"],
+                    "a4": params["a4"],
+                    "a5": params["a5"],
+                    "a6": params["a6"],
+                    "a7": params["a7"],
+                    "a8": params["a8"],
                 },
                 average_knowledge,
                 average_knowledge_per_hour,
             ]
         )
+    return sorted(twod_list_ssp_mmc, key=lambda x: x[1])
 
-    twod_list_ssp_mmc = sorted(twod_list_ssp_mmc, key=lambda x: x[1])
 
+def _calculate_advantage(twod_list_dr, twod_list_ssp_mmc):
     dr_differences = []
     dr_pairs = []
     crappy_ssp_mmc_indices = []
-    for ssp_mmc_list in twod_list_ssp_mmc:
+    for index, ssp_mmc_list in enumerate(twod_list_ssp_mmc):
         knowledge_differences = []
         efficiency_differences = []
         for dr_list in twod_list_dr:
@@ -427,9 +415,8 @@ def advantage_maximizer(frontier, propose_candidate=False, print_for_script=Fals
             efficiency_differences.append(efficiency_diff)
 
             if ssp_mmc_list[1] < dr_list[1] and ssp_mmc_list[2] < dr_list[2]:
-                index_current = twod_list_ssp_mmc.index(ssp_mmc_list)
-                if index_current not in crappy_ssp_mmc_indices:
-                    crappy_ssp_mmc_indices.append(index_current)
+                if index not in crappy_ssp_mmc_indices:
+                    crappy_ssp_mmc_indices.append(index)
 
         closest_knowledge_dr_index = knowledge_differences.index(min(knowledge_differences))
         closest_efficiency_dr_index = efficiency_differences.index(min(efficiency_differences))
@@ -438,86 +425,118 @@ def advantage_maximizer(frontier, propose_candidate=False, print_for_script=Fals
         dr_differences.append(closest_knowledge_dr - closest_efficiency_dr)
         dr_pairs.append([closest_knowledge_dr, closest_efficiency_dr])
 
-    if max(dr_differences) > 0:
+    max_diff_params = None
+    max_diff_drs = None
+    if dr_differences and max(dr_differences) > 0:
         max_diff_index = dr_differences.index(max(dr_differences))
         max_diff_params = twod_list_ssp_mmc[max_diff_index]
         max_diff_drs = dr_pairs[max_diff_index]
-        if not propose_candidate:
-            print(f"    Hyperparameters that provide the biggest advantage={max_diff_params[0]}")
-            print(f"    You get the average knowledge of DR={100 * max_diff_drs[0]:.0f}%")
-            print(f"    You get the efficiency of DR={100 * max_diff_drs[1]:.0f}%")
-            print("")
 
+    return {
+        "max_diff_params": max_diff_params,
+        "max_diff_drs": max_diff_drs,
+        "crappy_ssp_mmc_indices": crappy_ssp_mmc_indices,
+    }
+
+
+def _generate_policy_configs_from_frontier(
+    twod_list_dr, twod_list_ssp_mmc, max_diff_params
+):
     policy_configs = []
-    if print_for_script:
-        for dr_list in twod_list_dr:
-            abs_knowledge_differences = []
-            for ssp_mmc_list in twod_list_ssp_mmc:
-                abs_knowledge_differences.append(abs(ssp_mmc_list[1] - dr_list[1]))
+    for dr_list in twod_list_dr:
+        abs_knowledge_differences = []
+        for ssp_mmc_list in twod_list_ssp_mmc:
+            abs_knowledge_differences.append(abs(ssp_mmc_list[1] - dr_list[1]))
 
-            closest_index = abs_knowledge_differences.index(min(abs_knowledge_differences))
-            closest_params = twod_list_ssp_mmc[closest_index][0]
+        closest_index = abs_knowledge_differences.index(min(abs_knowledge_differences))
+        closest_params = twod_list_ssp_mmc[closest_index][0]
 
-            if max_diff_params is not None and closest_params == max_diff_params[0]:
-                entry = {"params": closest_params, "label": "Balanced"}
+        if max_diff_params is not None and closest_params == max_diff_params[0]:
+            entry = {"params": closest_params, "label": "Balanced"}
+        else:
+            entry = {"params": closest_params, "label": None}
+
+        if entry not in policy_configs:
+            policy_configs.append(entry)
+
+    policy_configs.reverse()
+    if policy_configs:
+        policy_configs[0]["label"] = "Maximum knowledge"
+        policy_configs[-1]["label"] = "Maximum efficiency"
+    return policy_configs
+
+
+def _propose_new_candidate(twod_list_ssp_mmc, crappy_ssp_mmc_indices):
+    if len(crappy_ssp_mmc_indices) == 0:
+        print("No need to manually propose a new candidate")
+        return None
+    worse_candidate = twod_list_ssp_mmc[min(crappy_ssp_mmc_indices)][0]
+    better_candidate = twod_list_ssp_mmc[min(crappy_ssp_mmc_indices) - 1][0]
+    all_keys = better_candidate.keys()
+
+    if better_candidate.get("a0") == worse_candidate.get("a0"):
+        strategy = "average"
+    else:
+        strategy = "mutate"
+
+    new_candidate = {}
+    for key in all_keys:
+        np.random.seed(int(time.time()))
+        if key == "a0":
+            new_candidate.update({"a0": better_candidate.get(key)})
+        else:
+            if strategy == "average":
+                better_param = better_candidate.get(key)
+                worse_param = worse_candidate.get(key)
+
+                random_weight_better = float(np.random.uniform(1.5, 4))
+                random_weight_worse = float(np.random.uniform(0.7, 1))
+
+                w_avg_param = (random_weight_better * better_param + random_weight_worse * worse_param) / (
+                    random_weight_better + random_weight_worse
+                )
+                new_candidate.update({key: round(w_avg_param, 2)})
+            elif strategy == "mutate":
+                better_param = better_candidate.get(key)
+
+                mutation = float(np.random.normal(0, 0.1))
+
+                if key in ["a1", "a2"]:
+                    new_param = max(min(round(better_param * (1 + mutation), 2), 10.0), 0.1)
+                else:
+                    new_param = max(min(round(better_param * (1 + mutation), 2), 5.0), -5.0)
+                new_candidate.update({key: new_param})
             else:
-                entry = {"params": closest_params, "label": None}
+                raise Exception("Unknown candidate generation strategy")
 
-            if entry not in policy_configs:
-                policy_configs.append(entry)
+    print(f"Manually proposed new candidate: {new_candidate}")
+    return new_candidate
 
-        policy_configs.reverse()
-        if policy_configs:
-            policy_configs[0]["label"] = "Maximum knowledge"
-            policy_configs[-1]["label"] = "Maximum efficiency"
+
+def advantage_maximizer(frontier, propose_candidate=False, print_for_script=False):
+    twod_list_dr = _dr_baseline_points()
+    twod_list_ssp_mmc = _extract_ssp_mmc_points(frontier)
+    advantage = _calculate_advantage(twod_list_dr, twod_list_ssp_mmc)
+    max_diff_params = advantage["max_diff_params"]
+    max_diff_drs = advantage["max_diff_drs"]
+
+    if max_diff_params is not None and not propose_candidate:
+        print(f"    Hyperparameters that provide the biggest advantage={max_diff_params[0]}")
+        print(f"    You get the average knowledge of DR={100 * max_diff_drs[0]:.0f}%")
+        print(f"    You get the efficiency of DR={100 * max_diff_drs[1]:.0f}%")
+        print("")
+
+    if print_for_script:
+        policy_configs = _generate_policy_configs_from_frontier(
+            twod_list_dr, twod_list_ssp_mmc, max_diff_params
+        )
         print(json.dumps(policy_configs, indent=2, sort_keys=True))
         return policy_configs
 
     if propose_candidate:
-        if len(crappy_ssp_mmc_indices) == 0:
-            print("No need to manually propose a new candidate")
-            return None
-        worse_candidate = twod_list_ssp_mmc[min(crappy_ssp_mmc_indices)][0]
-        better_candidate = twod_list_ssp_mmc[min(crappy_ssp_mmc_indices) - 1][0]
-        all_keys = better_candidate.keys()
-
-        if better_candidate.get("a0") == worse_candidate.get("a0"):
-            strategy = "average"
-        else:
-            strategy = "mutate"
-
-        new_candidate = {}
-        for key in all_keys:
-            np.random.seed(int(time.time()))
-            if key == "a0":
-                new_candidate.update({"a0": better_candidate.get(key)})
-            else:
-                if strategy == "average":
-                    better_param = better_candidate.get(key)
-                    worse_param = worse_candidate.get(key)
-
-                    random_weight_better = float(np.random.uniform(1.5, 4))
-                    random_weight_worse = float(np.random.uniform(0.7, 1))
-
-                    w_avg_param = (random_weight_better * better_param + random_weight_worse * worse_param) / (
-                        random_weight_better + random_weight_worse
-                    )
-                    new_candidate.update({key: round(w_avg_param, 2)})
-                elif strategy == "mutate":
-                    better_param = better_candidate.get(key)
-
-                    mutation = float(np.random.normal(0, 0.1))
-
-                    if key in ["a1", "a2"]:
-                        new_param = max(min(round(better_param * (1 + mutation), 2), 10.0), 0.1)
-                    else:
-                        new_param = max(min(round(better_param * (1 + mutation), 2), 5.0), -5.0)
-                    new_candidate.update({key: new_param})
-                else:
-                    raise Exception("Unknown candidate generation strategy")
-
-        print(f"Manually proposed new candidate: {new_candidate}")
-        return new_candidate
+        return _propose_new_candidate(
+            twod_list_ssp_mmc, advantage["crappy_ssp_mmc_indices"]
+        )
 
     return None
 
