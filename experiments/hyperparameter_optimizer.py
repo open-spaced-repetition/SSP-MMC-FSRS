@@ -76,6 +76,8 @@ HYPERVOLUME_PATIENCE = 3
 HYPERVOLUME_CHECK_INTERVAL = 5
 # Reference point for hypervolume (must be worse than all points).
 HYPERVOLUME_REF_POINT = (0.0, 0.0)
+# Threshold to treat hypervolume as meaningfully better.
+HYPERVOLUME_EPS = 1e-12
 
 
 def parse_args():
@@ -590,17 +592,19 @@ def run_optimizer():
 
     printed_flag = False
     stable_hypervolume_checks = 0
-    previous_hypervolume = None
+    best_hypervolume = None
+    best_frontier = None
     if completed_trials < total_trials:
         for i in range(completed_trials, total_trials):
             if loaded_flag and not printed_flag:
                 frontier = ax.get_pareto_optimal_parameters()
                 pareto(frontier)
                 advantage_maximizer(frontier)
-                previous_hypervolume = _hypervolume_2d(
+                best_hypervolume = _hypervolume_2d(
                     _frontier_points(frontier),
                     HYPERVOLUME_REF_POINT,
                 )
+                best_frontier = frontier
                 printed_flag = True
             elif i > 0 and i % HYPERVOLUME_CHECK_INTERVAL == 0:
                 frontier = ax.get_pareto_optimal_parameters()
@@ -610,19 +614,23 @@ def run_optimizer():
                     _frontier_points(frontier),
                     HYPERVOLUME_REF_POINT,
                 )
-                if previous_hypervolume is None:
-                    improvement = hypervolume
+                if best_hypervolume is None:
+                    best_hypervolume = hypervolume
+                    best_frontier = frontier
+                    improvement = 0.0
                 else:
-                    improvement = hypervolume - previous_hypervolume
+                    improvement = hypervolume - best_hypervolume
                 print(
                     "Hypervolume improvement: "
-                    f"{improvement:.6f} (current={hypervolume:.6f})"
+                    f"{improvement:.6f} (current={hypervolume:.6f}, best={best_hypervolume:.6f})"
                 )
+                if improvement > HYPERVOLUME_EPS:
+                    best_hypervolume = hypervolume
+                    best_frontier = frontier
                 if improvement < HYPERVOLUME_TOLERANCE:
                     stable_hypervolume_checks += 1
                 else:
                     stable_hypervolume_checks = 0
-                previous_hypervolume = hypervolume
                 if stable_hypervolume_checks >= HYPERVOLUME_PATIENCE:
                     print(
                         "Hypervolume improvement below tolerance. "
@@ -651,7 +659,7 @@ def run_optimizer():
             with DelayedKeyboardInterrupt():
                 ax.save_to_json_file(checkpoint_filename)
 
-    frontier = ax.get_pareto_optimal_parameters()
+    frontier = best_frontier or ax.get_pareto_optimal_parameters()
     pareto(frontier)
     policy_configs = advantage_maximizer(frontier, print_for_script=True)
     if policy_configs:
