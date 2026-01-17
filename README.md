@@ -21,20 +21,20 @@ Run the hyperparameter optimizer. It will generate a DR baseline at
 `outputs/checkpoints/policy_configs.json`.
 
 ```bash
-uv run python hyperparameter_optimizer.py
+uv run  experiments/hyperparameter_optimizer.py
 ```
 
 Generate SSP-MMC policies and surface plots (required before simulating SSP-MMC):
 
 ```bash
-uv run python experiments/generate_ssp_mmc_policies.py
+uv run  experiments/generate_ssp_mmc_policies.py
 ```
 
 Run the main simulation (generates plots and simulations under `outputs/`
 and refreshes the DR baseline JSON when DR policies are simulated):
 
 ```bash
-uv run python script.py
+uv run  experiments/simulate.py
 ```
 
 The simulation summary is written to `outputs/checkpoints/simulation_results.json`.
@@ -42,18 +42,18 @@ The simulation summary is written to `outputs/checkpoints/simulation_results.jso
 Optional flags for the experiment runner:
 
 ```bash
-uv run python experiments/simulate.py --simulation-type lim_time_unlim_reviews
-uv run python experiments/simulate.py --policies all
-uv run python experiments/simulate.py --policies ssp-mmc,memrise,anki-sm-2
-uv run python experiments/simulate.py --policies dr,interval
-uv run python experiments/simulate.py --seed 123 --device cpu
+uv run  experiments/simulate.py --simulation-type lim_time_unlim_reviews
+uv run  experiments/simulate.py --policies all
+uv run  experiments/simulate.py --policies ssp-mmc,memrise,anki-sm-2
+uv run  experiments/simulate.py --policies dr,interval
+uv run  experiments/simulate.py --seed 123 --device cpu
 ```
 
 Run the convergence checks (reads `outputs/checkpoints/policy_configs.json`; defaults assume sibling repos exist, override with flags):
 
 ```bash
-uv run python converge.py --help
-uv run python converge.py --button-usage <path> --parameters <path>
+uv run  experiments/converge.py --help
+uv run  experiments/converge.py --button-usage <path> --parameters <path>
 ```
 
 ## Project layout
