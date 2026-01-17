@@ -541,37 +541,6 @@ def advantage_maximizer(frontier, propose_candidate=False, print_for_script=Fals
     return None
 
 
-printed_flag = False
-if completed_trials < total_trials:
-    for i in range(completed_trials, total_trials):
-        if loaded_flag and not printed_flag:
-            frontier = ax.get_pareto_optimal_parameters()
-            pareto(frontier)
-            advantage_maximizer(frontier)
-            printed_flag = True
-        elif i > 0 and i % 5 == 0:
-            frontier = ax.get_pareto_optimal_parameters()
-            pareto(frontier)
-            advantage_maximizer(frontier)
-
-        print(f"Starting trial {i}/{total_trials}")
-        if i >= 40 and i % 10 == 0:
-            frontier = ax.get_pareto_optimal_parameters()
-            parameters = advantage_maximizer(frontier, propose_candidate=True)
-            if parameters is not None:
-                trial_indices = ax.attach_trial(parameters=parameters)
-                trial_index = trial_indices[1]
-            else:
-                parameters, trial_index = ax.get_next_trial()
-        else:
-            parameters, trial_index = ax.get_next_trial()
-
-        torch.cuda.empty_cache()
-        ax.complete_trial(trial_index=trial_index, raw_data=multi_objective_function(parameters))
-
-        with DelayedKeyboardInterrupt():
-            ax.save_to_json_file(checkpoint_filename)
-
 def run_optimizer():
     global completed_trials
 
