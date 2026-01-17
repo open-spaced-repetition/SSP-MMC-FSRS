@@ -99,32 +99,29 @@ The best result is highlighted in **bold**. Arrows indicate whether lower (↓) 
 
 | Scheduling Policy | Reviews per day (average)↓ | Minutes per day (average)↓ | Memorized cards (average, all days)↑ | Memorized/hours spent (average, all days)↑ |
 | --- | --- | --- | --- | --- |
-| SSP-MMC-FSRS (Maximum knowledge) | 512.3 | 72.9 | 7203 | 6.6 |
-| SSP-MMC-FSRS | 340.5 | 49.9 | 7163 | 9.6 |
-| SSP-MMC-FSRS | 336.0 | 49.3 | 7151 | 9.6 |
-| SSP-MMC-FSRS | 235.3 | 36.0 | 7080 | 12.7 |
-| SSP-MMC-FSRS | 225.8 | 34.5 | 7042 | 12.5 |
-| SSP-MMC-FSRS | 182.7 | 29.0 | 7000 | 15.0 |
-| SSP-MMC-FSRS | 164.6 | 26.7 | 6968 | 16.3 |
-| SSP-MMC-FSRS | 146.9 | 24.4 | 6913 | 17.3 |
-| SSP-MMC-FSRS | 137.5 | 23.2 | 6884 | 18.0 |
-| SSP-MMC-FSRS | 128.5 | 22.1 | 6860 | 18.8 |
-| SSP-MMC-FSRS | 121.7 | 21.2 | 6818 | 19.3 |
-| SSP-MMC-FSRS | 120.4 | 21.5 | 6819 | 19.9 |
-| SSP-MMC-FSRS | 104.2 | 19.1 | 6698 | 21.1 |
-| SSP-MMC-FSRS | 94.1 | 18.2 | 6617 | 22.1 |
-| SSP-MMC-FSRS | 92.7 | 18.1 | 6609 | 22.3 |
-| SSP-MMC-FSRS | 108.1 | 19.8 | 6751 | 20.7 |
-| SSP-MMC-FSRS | 90.2 | 17.7 | 6574 | 22.8 |
-| SSP-MMC-FSRS | 83.4 | 16.9 | 6471 | 23.4 |
-| SSP-MMC-FSRS | 80.9 | 16.5 | 6400 | 23.4 |
-| SSP-MMC-FSRS | 72.8 | 15.6 | 6380 | 24.3 |
-| SSP-MMC-FSRS | 67.6 | 14.9 | 6274 | 24.7 |
-| SSP-MMC-FSRS | 64.6 | 14.5 | 6198 | **24.9** |
-| SSP-MMC-FSRS | 65.4 | 14.7 | 6220 | **24.9** |
-| SSP-MMC-FSRS | 62.8 | 14.3 | 6131 | **24.9** |
-| SSP-MMC-FSRS | 62.5 | 14.4 | 6113 | 24.8 |
-| SSP-MMC-FSRS (Maximum efficiency) | 61.5 | **14.2** | 6066 | 24.8 |
+| SSP-MMC-FSRS (Maximum knowledge, 148ff1d3) | 736.3 | 102.7 | **7217** | 4.3 |
+| SSP-MMC-FSRS (0f44932a) | 417.7 | 60.0 | 7175 | 7.7 |
+| SSP-MMC-FSRS (8bb82ac1) | 333.7 | 48.8 | 7135 | 9.3 |
+| SSP-MMC-FSRS (b5507054) | 311.0 | 46.7 | 7124 | 11.1 |
+| SSP-MMC-FSRS (e78a300e) | 218.6 | 34.3 | 7075 | 14.3 |
+| SSP-MMC-FSRS (04628d8c) | 186.4 | 29.7 | 7038 | 15.3 |
+| SSP-MMC-FSRS (fe461908) | 178.0 | 28.4 | 6993 | 15.2 |
+| SSP-MMC-FSRS (39e4714a) | 145.1 | 24.4 | 6922 | 17.9 |
+| SSP-MMC-FSRS (42dae601) | 111.3 | 20.3 | 6780 | 20.6 |
+| SSP-MMC-FSRS (55f88a33) | 107.8 | 19.7 | 6704 | 20.3 |
+| SSP-MMC-FSRS (6e6d529f) | 104.1 | 19.2 | 6682 | 20.7 |
+| SSP-MMC-FSRS (d30e3e22) | 95.2 | 18.3 | 6659 | 22.1 |
+| SSP-MMC-FSRS (04b09e08) | 88.8 | 17.5 | 6557 | 22.2 |
+| SSP-MMC-FSRS (199f3daf) | 89.6 | 17.4 | 6483 | 22.4 |
+| SSP-MMC-FSRS (6f333f7a) | 78.8 | 16.3 | 6465 | 23.6 |
+| SSP-MMC-FSRS (de663c05) | 75.8 | 15.9 | 6422 | 24.0 |
+| SSP-MMC-FSRS (ff046b8f) | 71.0 | 15.3 | 6343 | 24.4 |
+| SSP-MMC-FSRS (3be3d6ea) | 70.7 | 15.4 | 6336 | 24.6 |
+| SSP-MMC-FSRS (Balanced, 4c30764a) | 68.0 | 15.0 | 6282 | 24.7 |
+| SSP-MMC-FSRS (a4dc82b8) | 65.6 | 14.7 | 6226 | **24.9** |
+| SSP-MMC-FSRS (6dc7ee05) | 64.2 | 14.4 | 6172 | **24.9** |
+| SSP-MMC-FSRS (a24264e0) | 61.8 | **14.3** | 6083 | 24.8 |
+| SSP-MMC-FSRS (Maximum efficiency, bd44b831) | 61.7 | **14.3** | 6050 | 24.6 |
 | Memrise | 109.1 | 20.2 | 6623 | 20.4 |
 | Anki-SM-2 | 131.6 | 22.3 | 6658 | 17.6 |
 | DR=0.70 | **61.2** | 14.4 | 6038 | 24.4 |
