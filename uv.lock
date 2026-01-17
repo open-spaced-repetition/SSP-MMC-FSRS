@@ -1339,25 +1339,36 @@ wheels = [
 [[package]]
 name = "ssp-mmc-fsrs"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
-    { name = "ax-platform" },
     { name = "matplotlib" },
+    { name = "numpy" },
     { name = "torch", version = "2.9.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
     { name = "torch", version = "2.9.1", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'" },
     { name = "torch", version = "2.9.1+cu126", source = { registry = "https://download.pytorch.org/whl/cu126" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "tqdm" },
 ]
 
+[package.optional-dependencies]
+experiments = [
+    { name = "ax-platform" },
+    { name = "colorama" },
+    { name = "matplotlib" },
+]
+
 [package.metadata]
 requires-dist = [
-    { name = "ax-platform", specifier = ">=1.2.1" },
+    { name = "ax-platform", marker = "extra == 'experiments'", specifier = ">=1.2.1" },
+    { name = "colorama", marker = "extra == 'experiments'", specifier = ">=0.4.6" },
     { name = "matplotlib", specifier = ">=3.10.8" },
+    { name = "matplotlib", marker = "extra == 'experiments'", specifier = ">=3.10.8" },
+    { name = "numpy", specifier = ">=1.26.0" },
     { name = "torch", marker = "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'", specifier = ">=2.9.1" },
     { name = "torch", marker = "sys_platform == 'darwin'", specifier = ">=2.9.1", index = "https://download.pytorch.org/whl/cpu" },
     { name = "torch", marker = "sys_platform == 'linux' or sys_platform == 'win32'", specifier = ">=2.9.1", index = "https://download.pytorch.org/whl/cu126" },
     { name = "tqdm", specifier = ">=4.67.1" },
 ]
+provides-extras = ["experiments"]
 
 [[package]]
 name = "stack-data"
