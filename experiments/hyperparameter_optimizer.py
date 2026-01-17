@@ -63,6 +63,10 @@ forget_session_len = DEFAULT_FORGET_SESSION_LEN
 
 DEVICE = default_device()
 _DR_BASELINE_CACHE = None
+# After this many trials, start proposing candidates manually.
+MANUAL_CANDIDATE_START_TRIAL = 40
+# Propose a new candidate every N trials.
+MANUAL_CANDIDATE_INTERVAL = 10
 
 
 def parse_args():
@@ -558,7 +562,10 @@ def run_optimizer():
                 advantage_maximizer(frontier)
 
             print(f"Starting trial {i}/{total_trials}")
-            if i >= 40 and i % 10 == 0:
+            if (
+                i >= MANUAL_CANDIDATE_START_TRIAL
+                and i % MANUAL_CANDIDATE_INTERVAL == 0
+            ):
                 frontier = ax.get_pareto_optimal_parameters()
                 parameters = advantage_maximizer(frontier, propose_candidate=True)
                 if parameters is not None:
