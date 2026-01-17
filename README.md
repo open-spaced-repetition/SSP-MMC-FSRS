@@ -4,6 +4,44 @@
 
 SSP-MMC-FSRS is an extended version of [SSP-MMC](https://github.com/maimemo/SSP-MMC), which is an algorithm for minimizing the memorization cost in spaced repetition. The core hypothesis of SSP-MMC is the learner will memorize a card forever when the stability exceeds a certain threshold. With this hypothesis and the memory state transition function (provided by [FSRS](https://github.com/open-spaced-repetition/fsrs4anki/wiki/The-Algorithm)), we can formulate the problem as a special case of the Markov Decision Process (MDP), i.e., a stochastic shortest path problem.
 
+## Usage
+
+Install dependencies with uv. The base install is enough to import the core package, while experiments need the extra dependencies.
+
+```bash
+uv sync
+```
+
+```bash
+uv sync --extra experiments
+```
+
+Run the main experiment (generates plots, simulations, and policies under `outputs/`):
+
+```bash
+uv run python script.py
+```
+
+Run the hyperparameter optimizer (saves checkpoints under `outputs/checkpoints/`):
+
+```bash
+uv run python hyperparameter_optimizer.py
+```
+
+Run the convergence checks (defaults assume sibling repos exist, override with flags):
+
+```bash
+uv run python converge.py --help
+uv run python converge.py --button-usage <path> --parameters <path>
+```
+
+## Project layout
+
+- `src/ssp_mmc_fsrs/`: core library (solver, policies, simulation, IO, config)
+- `experiments/`: research scripts that drive simulations
+- `outputs/`: generated plots, simulations, policies, and checkpoints
+- `notebooks/`: exploratory analysis
+
 ## Scheduling policies
 
 Scheduling Policy: how the intervals are calculated.
