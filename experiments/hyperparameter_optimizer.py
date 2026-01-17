@@ -68,10 +68,14 @@ _DR_BASELINE_CACHE = None
 MANUAL_CANDIDATE_START_TRIAL = 40
 # Propose a new candidate every N trials.
 MANUAL_CANDIDATE_INTERVAL = 10
-# Treat the Pareto frontier as stable after this many unchanged checks.
-PARETO_STABILITY_PATIENCE = 3
-# Check Pareto stability every N trials.
-PARETO_CHECK_INTERVAL = 5
+# Early stop if hypervolume improvement stays below this tolerance.
+HYPERVOLUME_TOLERANCE = 1e-3
+# Stop after this many low-improvement checks in a row.
+HYPERVOLUME_PATIENCE = 3
+# Check hypervolume every N trials.
+HYPERVOLUME_CHECK_INTERVAL = 5
+# Reference point for hypervolume (must be worse than all points).
+HYPERVOLUME_REF_POINT = (0.0, 0.0)
 
 
 def parse_args():
@@ -522,12 +526,35 @@ def _propose_new_candidate(twod_list_ssp_mmc, crappy_ssp_mmc_indices):
     return new_candidate
 
 
-def _frontier_signature(frontier):
-    param_signatures = []
+def _frontier_points(frontier):
+    points = []
     for _, payload in frontier.items():
-        params = payload[0]
-        param_signatures.append(json.dumps(params, sort_keys=True))
-    return tuple(sorted(param_signatures))
+        metrics = payload[1][0]
+        points.append(
+            (
+                float(metrics["average_knowledge"]),
+                float(metrics["average_knowledge_per_hour"]),
+            )
+        )
+    return points
+
+
+def _hypervolume_2d(points, ref_point):
+    ref_x, ref_y = ref_point
+    filtered = [(x, y) for x, y in points if x > ref_x and y > ref_y]
+    if not filtered:
+        return 0.0
+    filtered.sort(key=lambda point: point[0], reverse=True)
+    max_y = ref_y
+    area = 0.0
+    for idx, (x, y) in enumerate(filtered):
+        if y > max_y:
+            max_y = y
+        x_next = filtered[idx + 1][0] if idx + 1 < len(filtered) else ref_x
+        width = x - x_next
+        if width > 0:
+            area += width * (max_y - ref_y)
+    return area
 
 
 def advantage_maximizer(frontier, propose_candidate=False, print_for_script=False):
@@ -562,29 +589,43 @@ def run_optimizer():
     global completed_trials
 
     printed_flag = False
-    stable_frontier_checks = 0
-    previous_frontier_signature = None
+    stable_hypervolume_checks = 0
+    previous_hypervolume = None
     if completed_trials < total_trials:
         for i in range(completed_trials, total_trials):
             if loaded_flag and not printed_flag:
                 frontier = ax.get_pareto_optimal_parameters()
                 pareto(frontier)
                 advantage_maximizer(frontier)
-                previous_frontier_signature = _frontier_signature(frontier)
+                previous_hypervolume = _hypervolume_2d(
+                    _frontier_points(frontier),
+                    HYPERVOLUME_REF_POINT,
+                )
                 printed_flag = True
-            elif i > 0 and i % PARETO_CHECK_INTERVAL == 0:
+            elif i > 0 and i % HYPERVOLUME_CHECK_INTERVAL == 0:
                 frontier = ax.get_pareto_optimal_parameters()
                 pareto(frontier)
                 advantage_maximizer(frontier)
-                frontier_signature = _frontier_signature(frontier)
-                if frontier_signature == previous_frontier_signature:
-                    stable_frontier_checks += 1
+                hypervolume = _hypervolume_2d(
+                    _frontier_points(frontier),
+                    HYPERVOLUME_REF_POINT,
+                )
+                if previous_hypervolume is None:
+                    improvement = hypervolume
                 else:
-                    stable_frontier_checks = 0
-                    previous_frontier_signature = frontier_signature
-                if stable_frontier_checks >= PARETO_STABILITY_PATIENCE:
+                    improvement = hypervolume - previous_hypervolume
+                print(
+                    "Hypervolume improvement: "
+                    f"{improvement:.6f} (current={hypervolume:.6f})"
+                )
+                if improvement < HYPERVOLUME_TOLERANCE:
+                    stable_hypervolume_checks += 1
+                else:
+                    stable_hypervolume_checks = 0
+                previous_hypervolume = hypervolume
+                if stable_hypervolume_checks >= HYPERVOLUME_PATIENCE:
                     print(
-                        "Pareto frontier appears stable. "
+                        "Hypervolume improvement below tolerance. "
                         "Stopping early to avoid redundant trials."
                     )
                     break
