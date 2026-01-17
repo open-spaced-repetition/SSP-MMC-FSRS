@@ -1,13 +1,10 @@
 import argparse
 import json
-import logging
-import signal
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
-from colorama import Fore, Style
 from tqdm import tqdm
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -18,23 +15,7 @@ if str(SRC_DIR) not in sys.path:
 from ssp_mmc_fsrs.config import CHECKPOINTS_DIR, POLICY_CONFIGS_PATH  # noqa: E402
 from ssp_mmc_fsrs.io import load_policy_configs  # noqa: E402
 from ssp_mmc_fsrs.solver import SSPMMCSolver  # noqa: E402
-
-
-class DelayedKeyboardInterrupt:
-    def __enter__(self):
-        self.signal_received = False
-        self.old_handler = signal.signal(signal.SIGINT, self.handler)
-
-    def handler(self, sig, frame):
-        self.signal_received = (sig, frame)
-        logging.debug("SIGINT received. Delaying KeyboardInterrupt")
-        print(Fore.RED + "Delaying KeyboardInterrupt")
-        print(Style.RESET_ALL)
-
-    def __exit__(self, type, value, traceback):
-        signal.signal(signal.SIGINT, self.old_handler)
-        if self.signal_received:
-            self.old_handler(*self.signal_received)
+from experiments.lib import DelayedKeyboardInterrupt  # noqa: E402
 
 
 def parse_args():

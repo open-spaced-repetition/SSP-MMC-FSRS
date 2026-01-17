@@ -1,8 +1,6 @@
 import argparse
 import json
-import logging
 import os
-import signal
 import sys
 import warnings
 import time
@@ -12,7 +10,6 @@ import numpy as np
 import torch
 from ax.service.ax_client import AxClient
 from ax.service.utils.instantiation import ObjectiveProperties
-from colorama import Fore, Style
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SRC_DIR = ROOT_DIR / "src"
@@ -51,25 +48,9 @@ from ssp_mmc_fsrs.io import (
 from ssp_mmc_fsrs.policies import create_dr_policy  # noqa: E402
 from ssp_mmc_fsrs.simulation import simulate  # noqa: E402
 from ssp_mmc_fsrs.solver import SSPMMCSolver  # noqa: E402
+from experiments.lib import DelayedKeyboardInterrupt  # noqa: E402
 
 warnings.filterwarnings("ignore")
-
-
-class DelayedKeyboardInterrupt:
-    def __enter__(self):
-        self.signal_received = False
-        self.old_handler = signal.signal(signal.SIGINT, self.handler)
-
-    def handler(self, sig, frame):
-        self.signal_received = (sig, frame)
-        logging.debug("SIGINT received. Delaying KeyboardInterrupt")
-        print(Fore.RED + "Delaying KeyboardInterrupt")
-        print(Style.RESET_ALL)
-
-    def __exit__(self, type, value, traceback):
-        signal.signal(signal.SIGINT, self.old_handler)
-        if self.signal_received:
-            self.old_handler(*self.signal_received)
 
 
 review_costs = DEFAULT_REVIEW_COSTS

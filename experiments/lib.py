@@ -1,10 +1,22 @@
 from pathlib import Path
 import json
+import logging
+import signal
 import sys
 import time
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+try:
+    from colorama import Fore, Style
+except ModuleNotFoundError:
+    class _NoColor:
+        RED = ""
+        RESET_ALL = ""
+
+    Fore = _NoColor()
+    Style = _NoColor()
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SRC_DIR = ROOT_DIR / "src"
@@ -48,6 +60,22 @@ from ssp_mmc_fsrs.policies import (  # noqa: E402
 )
 from ssp_mmc_fsrs.simulation import simulate  # noqa: E402
 from ssp_mmc_fsrs.solver import SSPMMCSolver  # noqa: E402
+
+
+class DelayedKeyboardInterrupt:
+    def __enter__(self):
+        self.signal_received = False
+        self.old_handler = signal.signal(signal.SIGINT, self.handler)
+
+    def handler(self, sig, frame):
+        self.signal_received = (sig, frame)
+        logging.debug("SIGINT received. Delaying KeyboardInterrupt")
+        print(f"{Fore.RED}Delaying KeyboardInterrupt{Style.RESET_ALL}")
+
+    def __exit__(self, type, value, traceback):
+        signal.signal(signal.SIGINT, self.old_handler)
+        if self.signal_received:
+            self.old_handler(*self.signal_received)
 
 
 def setup_environment(seed):
