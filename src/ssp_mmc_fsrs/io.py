@@ -58,7 +58,7 @@ def save_policy(output_dir, title, solver, cost_matrix, retention_matrix, hyperp
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     policy_id = _policy_hash(hyperparams)
-    base_name = f"{_safe_slug(title)}_{policy_id}"
+    base_name = _safe_slug(title)
     npz_path = output_dir / f"{base_name}.npz"
     meta_path = output_dir / f"{base_name}.json"
 
