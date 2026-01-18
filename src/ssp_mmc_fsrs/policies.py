@@ -38,8 +38,12 @@ def s_max_aware_fixed_interval(s, d, fixed_interval, decay, w, s_max):
         max_r_to_reach_next_stability(s, s_max + 1e-3, d, torch.full_like(s, 3), w),
         decay,
     )
+    if torch.is_tensor(int_base):
+        int_base = int_base.to(device=s.device)
+    else:
+        int_base = torch.tensor(int_base, device=s.device)
     return torch.where(
-        s > s_max, 1e9, torch.minimum(torch.tensor(int_base, device=s.device), int_req)
+        s > s_max, 1e9, torch.minimum(int_base, int_req)
     )
 
 
