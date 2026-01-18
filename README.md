@@ -162,7 +162,7 @@ The best result is highlighted in **bold**. Arrows indicate whether lower (↓) 
 
 It may be difficult to understand whether a certain scheduling policy is better than another based on this table. Below is a visualization:
 
-<img width="1200" height="900" alt="Figure_1" src="https://github.com/user-attachments/assets/5ac8963e-f741-44b1-8789-b989620df096" />
+<img width="1200" height="900" alt="Pareto frontier" src="https://github.com/user-attachments/assets/78cef195-51e1-4089-bb0a-b3d15f513919" />
 
 "Balanced" roughly corresponds to "Number of memorized cards of DR=79% and efficiency of DR=70%".
 
