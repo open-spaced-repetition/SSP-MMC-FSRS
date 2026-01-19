@@ -48,7 +48,6 @@ from ssp_mmc_fsrs.config import (  # noqa: E402
     REVIEW_LIMIT_PER_DAY,
     S_MAX,
     SIMULATION_DIR,
-    SIMULATION_RESULTS_PATH,
     resolve_simulation_limits,
 )
 from ssp_mmc_fsrs.core import next_interval  # noqa: E402
@@ -117,11 +116,16 @@ def dr_baseline_path_for_user(user_id):
     return checkpoint_output_dir(user_id) / "dr_baseline.json"
 
 
+def simulation_results_path_for_user(user_id):
+    return checkpoint_output_dir(user_id) / "simulation_results.json"
+
+
 def ensure_output_dirs(user_id=None):
     for path in (PLOTS_DIR, SIMULATION_DIR, POLICIES_DIR):
         path.mkdir(parents=True, exist_ok=True)
     if user_id is not None:
         policy_output_dir(user_id).mkdir(parents=True, exist_ok=True)
+        checkpoint_output_dir(user_id).mkdir(parents=True, exist_ok=True)
 
 
 def load_fsrs_weights(benchmark_result_path, user_id, partition="0"):
@@ -922,7 +926,8 @@ def run_experiment(
     user_id,
 ):
     ensure_output_dirs(user_id=user_id)
-    save_simulation_results([], SIMULATION_RESULTS_PATH)
+    results_path = simulation_results_path_for_user(user_id)
+    save_simulation_results([], results_path)
 
     policies = normalize_policy_list(policies)
 
@@ -950,20 +955,16 @@ def run_experiment(
             init_difficulties,
         ) = run_ssp_mmc_configs(
             policy_configs,
-            SIMULATION_RESULTS_PATH,
+            results_path,
             simulate_policy,
             device,
             user_id=user_id,
         )
 
     if "memrise" in policies:
-        plot_simulation(
-            memrise_policy, "Memrise", SIMULATION_RESULTS_PATH, simulate_policy
-        )
+        plot_simulation(memrise_policy, "Memrise", results_path, simulate_policy)
     if "anki-sm-2" in policies:
-        plot_simulation(
-            anki_sm2_policy, "Anki-SM-2", SIMULATION_RESULTS_PATH, simulate_policy
-        )
+        plot_simulation(anki_sm2_policy, "Anki-SM-2", results_path, simulate_policy)
 
     if solver is not None and retention_matrix is not None:
         plot_optimal_policy_vs_stability(
@@ -971,14 +972,14 @@ def run_experiment(
         )
 
     if "dr" in policies:
-        simulate_dr_policies(SIMULATION_RESULTS_PATH, simulate_policy, w)
+        simulate_dr_policies(results_path, simulate_policy, w)
         print("--------------------------------")
-        save_dr_baseline_from_results(SIMULATION_RESULTS_PATH, dr_baseline_path)
+        save_dr_baseline_from_results(results_path, dr_baseline_path)
     else:
         print("Skipping DR sweep and baseline generation.")
 
     if "interval" in policies:
-        run_fixed_interval_policies(SIMULATION_RESULTS_PATH, simulate_policy, w)
+        run_fixed_interval_policies(results_path, simulate_policy, w)
 
     print(
         "| Scheduling Policy | Reviews per day (average, lower=better) | "
@@ -988,6 +989,6 @@ def run_experiment(
     )
     print("| --- | --- | --- | --- | --- |")
 
-    print_simulation_summary(SIMULATION_RESULTS_PATH)
+    print_simulation_summary(results_path)
 
-    plot_pareto_frontier(SIMULATION_RESULTS_PATH, policy_configs or [])
+    plot_pareto_frontier(results_path, policy_configs or [])

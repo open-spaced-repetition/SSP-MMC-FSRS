@@ -42,7 +42,7 @@ and refreshes the user DR baseline JSON when DR policies are simulated):
 uv run experiments/simulate.py --user-id 1
 ```
 
-The simulation summary is written to `outputs/checkpoints/simulation_results.json`.
+The simulation summary is written to `outputs/checkpoints/user_<id>/simulation_results.json`.
 
 Optional flags for the experiment runner:
 
