@@ -24,7 +24,8 @@ write policy configs to `outputs/checkpoints/user_<id>/policy_configs.json`.
 uv run experiments/hyperparameter_optimizer.py --user-id 1
 ```
 
-Generate SSP-MMC policies and surface plots for a user (required before simulating SSP-MMC):
+Generate SSP-MMC policies and surface plots for a user (required before simulating SSP-MMC).
+Surface plots are written under `outputs/plots/user_<id>`.
 
 ```bash
 uv run experiments/generate_ssp_mmc_policies.py --user-id 1
@@ -35,7 +36,8 @@ simulation results don't overwrite each other. If you change hyperparameters or
 pull updates that affect policy serialization, regenerate policies before running
 simulations.
 
-Run the main simulation (generates plots and simulations under `outputs/`
+Run the main simulation (generates plots and simulations under
+`outputs/plots/user_<id>` and `outputs/simulation/user_<id>`
 and refreshes the user DR baseline JSON when DR policies are simulated):
 
 ```bash

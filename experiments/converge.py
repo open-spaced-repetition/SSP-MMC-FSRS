@@ -13,11 +13,13 @@ for path in (ROOT_DIR, SRC_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from ssp_mmc_fsrs.config import CHECKPOINTS_DIR  # noqa: E402
 from ssp_mmc_fsrs.io import load_policy_configs  # noqa: E402
 from ssp_mmc_fsrs.solver import SSPMMCSolver  # noqa: E402
 from experiments.lib import (  # noqa: E402
     DelayedKeyboardInterrupt,
+    checkpoint_output_dir,
+    convergence_results_path_for_user,
+    unconverged_users_path_for_user,
     policy_configs_path_for_user,
 )
 
@@ -39,13 +41,13 @@ def parse_args():
     parser.add_argument(
         "--results",
         type=Path,
-        default=CHECKPOINTS_DIR / "convergence_incremental_results.json",
+        default=None,
         help="Path to incremental results JSON file.",
     )
     parser.add_argument(
         "--unconverged",
         type=Path,
-        default=CHECKPOINTS_DIR / "unconverged_users.json",
+        default=None,
         help="Path to unconverged users JSON file.",
     )
     parser.add_argument(
@@ -117,7 +119,11 @@ def test_user(user_id, simulator_configs, parameters, policy_configs):
 
 def main():
     args = parse_args()
-    CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
+    checkpoint_output_dir(args.user_id).mkdir(parents=True, exist_ok=True)
+    if args.results is None:
+        args.results = convergence_results_path_for_user(args.user_id)
+    if args.unconverged is None:
+        args.unconverged = unconverged_users_path_for_user(args.user_id)
 
     simulator_configs = load_jsonl(args.button_usage)
     simulator_configs = {config["user"]: config for config in simulator_configs}

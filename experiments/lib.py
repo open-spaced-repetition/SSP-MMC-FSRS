@@ -102,6 +102,18 @@ def policy_output_dir(user_id):
     return POLICIES_DIR / f"user_{user_id}"
 
 
+def plots_output_dir(user_id):
+    if user_id is None:
+        return PLOTS_DIR
+    return PLOTS_DIR / f"user_{user_id}"
+
+
+def simulation_output_dir(user_id):
+    if user_id is None:
+        return SIMULATION_DIR
+    return SIMULATION_DIR / f"user_{user_id}"
+
+
 def checkpoint_output_dir(user_id):
     if user_id is None:
         return CHECKPOINTS_DIR
@@ -120,11 +132,21 @@ def simulation_results_path_for_user(user_id):
     return checkpoint_output_dir(user_id) / "simulation_results.json"
 
 
+def convergence_results_path_for_user(user_id):
+    return checkpoint_output_dir(user_id) / "convergence_incremental_results.json"
+
+
+def unconverged_users_path_for_user(user_id):
+    return checkpoint_output_dir(user_id) / "unconverged_users.json"
+
+
 def ensure_output_dirs(user_id=None):
     for path in (PLOTS_DIR, SIMULATION_DIR, POLICIES_DIR):
         path.mkdir(parents=True, exist_ok=True)
     if user_id is not None:
         policy_output_dir(user_id).mkdir(parents=True, exist_ok=True)
+        plots_output_dir(user_id).mkdir(parents=True, exist_ok=True)
+        simulation_output_dir(user_id).mkdir(parents=True, exist_ok=True)
         checkpoint_output_dir(user_id).mkdir(parents=True, exist_ok=True)
 
 
@@ -263,7 +285,7 @@ def update_simulation_results(result, results_path):
     save_simulation_results(results, results_path)
 
 
-def plot_simulation(policy, title, results_path, simulate_policy):
+def plot_simulation(policy, title, results_path, simulate_policy, simulation_dir):
     review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(
         policy, title
     )
@@ -298,7 +320,7 @@ def plot_simulation(policy, title, results_path, simulate_policy):
     ax.set_title("Memorized Count")
     ax.legend()
     plt.tight_layout()
-    plt.savefig(SIMULATION_DIR / f"{title}.png")
+    plt.savefig(simulation_dir / f"{title}.png")
     plt.close()
 
 
@@ -401,7 +423,9 @@ def _load_policy_index(policy_dir, user_id=None):
     return index
 
 
-def run_ssp_mmc_configs(policy_configs, results_path, simulate_policy, device, user_id):
+def run_ssp_mmc_configs(
+    policy_configs, results_path, simulate_policy, device, user_id, simulation_dir
+):
     last_solver = None
     last_retention_matrix = None
     last_init_stabilities = None
@@ -428,7 +452,9 @@ def run_ssp_mmc_configs(policy_configs, results_path, simulate_policy, device, u
         solver = policy_data["solver"]
         retention_matrix = policy_data["retention_matrix"]
 
-        plot_simulation(policy_data["policy"], title, results_path, simulate_policy)
+        plot_simulation(
+            policy_data["policy"], title, results_path, simulate_policy, simulation_dir
+        )
 
         last_solver = solver
         last_retention_matrix = retention_matrix
@@ -451,6 +477,7 @@ def generate_ssp_mmc_policies(
     weights_partition,
 ):
     policy_dir = policy_output_dir(user_id)
+    plots_dir = plots_output_dir(user_id)
     for policy_config in policy_configs:
         solver = SSPMMCSolver(
             review_costs=DEFAULT_REVIEW_COSTS,
@@ -492,12 +519,12 @@ def generate_ssp_mmc_policies(
         )
 
         plt.tight_layout()
-        plt.savefig(PLOTS_DIR / f"{title}.png")
+        plt.savefig(plots_dir / f"{title}.png")
         plt.close(fig)
 
 
 def plot_optimal_policy_vs_stability(
-    solver, retention_matrix, init_stabilities, init_difficulties, w
+    solver, retention_matrix, init_stabilities, init_difficulties, w, plots_dir
 ):
     def optimal_policy_for_rating_sequence(rating_sequence):
         s_list = []
@@ -552,7 +579,7 @@ def plot_optimal_policy_vs_stability(
         ax.legend()
         fig.suptitle(f"Rating Sequence: {','.join(map(str, g_list))}")
         plt.tight_layout()
-        plt.savefig(PLOTS_DIR / f"OR-OI-{','.join(map(str, g_list))}.png")
+        plt.savefig(plots_dir / f"OR-OI-{','.join(map(str, g_list))}.png")
         plt.close(fig)
 
     for rating in range(1, 5):
@@ -563,7 +590,7 @@ def dr_range():
     return np.arange(R_MIN, R_MAX, 0.01)
 
 
-def evaluate_dr_thresholds(w):
+def evaluate_dr_thresholds(w, plots_dir):
     costs = []
     r_values = dr_range()
 
@@ -614,19 +641,21 @@ def evaluate_dr_thresholds(w):
         ax.set_title(f"True Retention: {avg_retention:.2f}")
         ax.set_box_aspect(None, zoom=0.8)
         plt.tight_layout()
-        plt.savefig(PLOTS_DIR / f"DR={r:.2f}.png")
+        plt.savefig(plots_dir / f"DR={r:.2f}.png")
         plt.close(fig)
 
     return r_values, costs
 
 
-def simulate_dr_policies(results_path, simulate_policy, w):
+def simulate_dr_policies(results_path, simulate_policy, w, simulation_dir):
     for r in dr_range():
         dr_policy = create_dr_policy(r, w=w)
-        plot_simulation(dr_policy, f"DR={r:.2f}", results_path, simulate_policy)
+        plot_simulation(
+            dr_policy, f"DR={r:.2f}", results_path, simulate_policy, simulation_dir
+        )
 
 
-def plot_cost_vs_retention(costs, r_range):
+def plot_cost_vs_retention(costs, r_range, plots_dir):
     fig = plt.figure(figsize=(8, 8))
     ax = fig.add_subplot(111)
     optimal_retention = r_range[np.argmin(costs)]
@@ -637,15 +666,19 @@ def plot_cost_vs_retention(costs, r_range):
     ax.set_title(
         f"Optimal Retention: {optimal_retention * 100:.2f}%, Min Cost: {min_cost:.2f}"
     )
-    plt.savefig(PLOTS_DIR / "cost_vs_retention.png")
+    plt.savefig(plots_dir / "cost_vs_retention.png")
     plt.close(fig)
 
 
-def run_fixed_interval_policies(results_path, simulate_policy, w):
+def run_fixed_interval_policies(results_path, simulate_policy, w, simulation_dir):
     for fixed_interval in [7, 14, 20, 30, 50, 75, 100]:
         fixed_policy = create_fixed_interval_policy(fixed_interval, w=w)
         plot_simulation(
-            fixed_policy, f"Interval={fixed_interval}", results_path, simulate_policy
+            fixed_policy,
+            f"Interval={fixed_interval}",
+            results_path,
+            simulate_policy,
+            simulation_dir,
         )
 
 
@@ -701,7 +734,7 @@ def _categorize_plot_data(simulation_results):
     return categorized
 
 
-def plot_pareto_frontier(results_path, policy_configs):
+def plot_pareto_frontier(results_path, policy_configs, plots_dir):
     simulation_results = load_simulation_results(results_path)
     if not simulation_results:
         print(f"No simulation results found at {results_path}. Skipping Pareto plot.")
@@ -897,7 +930,7 @@ def plot_pareto_frontier(results_path, policy_configs):
     plt.grid(True, ls="--")
     plt.legend(fontsize=18, loc="lower left", facecolor="white")
     plt.tight_layout()
-    plt.savefig(PLOTS_DIR / "Pareto frontier.png")
+    plt.savefig(plots_dir / "Pareto frontier.png")
     plt.show()
     plt.close()
 
@@ -927,6 +960,8 @@ def run_experiment(
 ):
     ensure_output_dirs(user_id=user_id)
     results_path = simulation_results_path_for_user(user_id)
+    plots_dir = plots_output_dir(user_id)
+    simulation_dir = simulation_output_dir(user_id)
     save_simulation_results([], results_path)
 
     policies = normalize_policy_list(policies)
@@ -959,27 +994,41 @@ def run_experiment(
             simulate_policy,
             device,
             user_id=user_id,
+            simulation_dir=simulation_dir,
         )
 
     if "memrise" in policies:
-        plot_simulation(memrise_policy, "Memrise", results_path, simulate_policy)
+        plot_simulation(
+            memrise_policy, "Memrise", results_path, simulate_policy, simulation_dir
+        )
     if "anki-sm-2" in policies:
-        plot_simulation(anki_sm2_policy, "Anki-SM-2", results_path, simulate_policy)
+        plot_simulation(
+            anki_sm2_policy,
+            "Anki-SM-2",
+            results_path,
+            simulate_policy,
+            simulation_dir,
+        )
 
     if solver is not None and retention_matrix is not None:
         plot_optimal_policy_vs_stability(
-            solver, retention_matrix, init_stabilities, init_difficulties, w
+            solver,
+            retention_matrix,
+            init_stabilities,
+            init_difficulties,
+            w,
+            plots_dir,
         )
 
     if "dr" in policies:
-        simulate_dr_policies(results_path, simulate_policy, w)
+        simulate_dr_policies(results_path, simulate_policy, w, simulation_dir)
         print("--------------------------------")
         save_dr_baseline_from_results(results_path, dr_baseline_path)
     else:
         print("Skipping DR sweep and baseline generation.")
 
     if "interval" in policies:
-        run_fixed_interval_policies(results_path, simulate_policy, w)
+        run_fixed_interval_policies(results_path, simulate_policy, w, simulation_dir)
 
     print(
         "| Scheduling Policy | Reviews per day (average, lower=better) | "
@@ -991,4 +1040,4 @@ def run_experiment(
 
     print_simulation_summary(results_path)
 
-    plot_pareto_frontier(results_path, policy_configs or [])
+    plot_pareto_frontier(results_path, policy_configs or [], plots_dir)
