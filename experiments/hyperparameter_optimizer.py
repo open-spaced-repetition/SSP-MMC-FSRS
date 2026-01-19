@@ -18,7 +18,6 @@ for path in (ROOT_DIR, SRC_DIR):
         sys.path.insert(0, str(path))
 
 from ssp_mmc_fsrs.config import (  # noqa: E402
-    CHECKPOINTS_DIR,
     DEFAULT_FIRST_RATING_OFFSETS,
     DEFAULT_FIRST_RATING_PROB,
     DEFAULT_FIRST_SESSION_LENS,
@@ -26,14 +25,12 @@ from ssp_mmc_fsrs.config import (  # noqa: E402
     DEFAULT_FORGET_SESSION_LEN,
     DEFAULT_REVIEW_COSTS,
     DEFAULT_REVIEW_RATING_PROB,
-    DEFAULT_W,
     DECK_SIZE,
     DR_BASELINE_PATH,
     LEARN_LIMIT_PER_DAY,
     LEARN_SPAN,
     MAX_STUDYING_TIME_PER_DAY,
     PARALLEL,
-    POLICY_CONFIGS_PATH,
     R_MAX,
     R_MIN,
     REVIEW_LIMIT_PER_DAY,
@@ -49,7 +46,14 @@ from ssp_mmc_fsrs.io import (
 from ssp_mmc_fsrs.policies import create_dr_policy  # noqa: E402
 from ssp_mmc_fsrs.simulation import simulate  # noqa: E402
 from ssp_mmc_fsrs.solver import SSPMMCSolver  # noqa: E402
-from experiments.lib import DelayedKeyboardInterrupt  # noqa: E402
+from experiments.lib import (  # noqa: E402
+    DEFAULT_BENCHMARK_RESULT,
+    DelayedKeyboardInterrupt,
+    checkpoint_output_dir,
+    dr_baseline_path_for_user,
+    load_fsrs_weights,
+    policy_configs_path_for_user,
+)
 
 warnings.filterwarnings("ignore")
 
@@ -64,6 +68,13 @@ forget_session_len = DEFAULT_FORGET_SESSION_LEN
 
 DEVICE = default_device()
 _DR_BASELINE_CACHE = None
+W = None
+DR_BASELINE_PATH_LOCAL = DR_BASELINE_PATH
+POLICY_CONFIGS_PATH_LOCAL = None
+checkpoint_filename = None
+ax = None
+completed_trials = 0
+loaded_flag = False
 # After this many trials, start proposing candidates manually.
 MANUAL_CANDIDATE_START_TRIAL = 40
 # Propose a new candidate every N trials.
@@ -94,10 +105,28 @@ def parse_args():
         action="store_true",
         help="Regenerate dr_baseline.json before running optimizer.",
     )
+    parser.add_argument(
+        "--user-id",
+        type=int,
+        default=1,
+        help="User ID for selecting FSRS weights and saving outputs.",
+    )
+    parser.add_argument(
+        "--benchmark-result",
+        type=Path,
+        default=DEFAULT_BENCHMARK_RESULT,
+        help="FSRS benchmark result JSONL to read user weights from.",
+    )
     return parser.parse_args()
 
 
+def _require_weights():
+    if W is None:
+        raise RuntimeError("FSRS weights are not initialized.")
+
+
 def simulate_policy(policy):
+    _require_weights()
     (
         review_cnt_per_day,
         _,
@@ -105,7 +134,7 @@ def simulate_policy(policy):
         cost_per_day,
     ) = simulate(
         parallel=PARALLEL,
-        w=DEFAULT_W,
+        w=W,
         policy=policy,
         device=DEVICE,
         deck_size=DECK_SIZE,
@@ -120,10 +149,11 @@ def simulate_policy(policy):
 
 
 def generate_dr_baseline():
+    _require_weights()
     dr_baseline = []
     r_range = np.arange(R_MIN, R_MAX, 0.01)
     for r in r_range:
-        dr_policy = create_dr_policy(r)
+        dr_policy = create_dr_policy(r, w=W)
         _, cost_per_day, memorized_cnt_per_day = simulate_policy(dr_policy)
         accum_cost = np.cumsum(cost_per_day, axis=-1)
         accum_time_average = accum_cost.mean() / 3600
@@ -136,8 +166,8 @@ def generate_dr_baseline():
                 "average_knowledge_per_hour": float(avg_accum_memorized_per_hour),
             }
         )
-    save_dr_baseline(dr_baseline, DR_BASELINE_PATH)
-    print(f"Saved DR baseline to {DR_BASELINE_PATH}")
+    save_dr_baseline(dr_baseline, DR_BASELINE_PATH_LOCAL)
+    print(f"Saved DR baseline to {DR_BASELINE_PATH_LOCAL}")
     return dr_baseline
 
 
@@ -149,7 +179,7 @@ def get_dr_baseline(force=False):
         dr_baseline = generate_dr_baseline()
     else:
         try:
-            dr_baseline = load_dr_baseline(DR_BASELINE_PATH)
+            dr_baseline = load_dr_baseline(DR_BASELINE_PATH_LOCAL)
         except FileNotFoundError:
             dr_baseline = generate_dr_baseline()
     _DR_BASELINE_CACHE = dr_baseline
@@ -157,6 +187,7 @@ def get_dr_baseline(force=False):
 
 
 def multi_objective_function(param_dict):
+    _require_weights()
     solver = SSPMMCSolver(
         review_costs=DEFAULT_REVIEW_COSTS,
         first_rating_prob=DEFAULT_FIRST_RATING_PROB,
@@ -165,7 +196,7 @@ def multi_objective_function(param_dict):
         first_session_lens=DEFAULT_FIRST_SESSION_LENS,
         forget_rating_offset=DEFAULT_FORGET_RATING_OFFSET,
         forget_session_len=DEFAULT_FORGET_SESSION_LEN,
-        w=DEFAULT_W,
+        w=W,
     )
 
     cost_matrix, retention_matrix = solver.solve(param_dict)
@@ -177,7 +208,9 @@ def multi_objective_function(param_dict):
         mask = (d_index >= solver.d_size) | (s_index >= solver.s_size - 1)
         optimal_interval = torch.zeros_like(s)
         optimal_interval[~mask] = next_interval_torch(
-            s[~mask], retention_matrix_tensor[d_index[~mask], s_index[~mask]], -DEFAULT_W[20]
+            s[~mask],
+            retention_matrix_tensor[d_index[~mask], s_index[~mask]],
+            -W[20],
         )
         optimal_interval[mask] = np.inf
         return optimal_interval
@@ -196,9 +229,7 @@ def multi_objective_function(param_dict):
     print("")
     print(param_dict)
     print(f"Average memorized={memorized_average:.0f} cards")
-    print(
-        f"Average memorized/hours={avg_accum_memorized_per_hour:.1f} cards/hour"
-    )
+    print(f"Average memorized/hours={avg_accum_memorized_per_hour:.1f} cards/hour")
     print("")
     return {
         "average_knowledge": (memorized_average, None),
@@ -211,69 +242,76 @@ ax_seed = S_MAX
 
 parameters = [
     {"name": "a0", "type": "choice", "values": ["no_log", "log"]},
-    {"name": "a1", "type": "range", "bounds": [0.1, 10], "log_scale": True, "value_type": "float", "digits": 2},
-    {"name": "a2", "type": "range", "bounds": [0.1, 10], "log_scale": True, "value_type": "float", "digits": 2},
-    {"name": "a3", "type": "range", "bounds": [-5, 5], "log_scale": False, "value_type": "float", "digits": 2},
-    {"name": "a4", "type": "range", "bounds": [-5, 5], "log_scale": False, "value_type": "float", "digits": 2},
-    {"name": "a5", "type": "range", "bounds": [-5, 5], "log_scale": False, "value_type": "float", "digits": 2},
-    {"name": "a6", "type": "range", "bounds": [-5, 5], "log_scale": False, "value_type": "float", "digits": 2},
-    {"name": "a7", "type": "range", "bounds": [-5, 5], "log_scale": False, "value_type": "float", "digits": 2},
-    {"name": "a8", "type": "range", "bounds": [-5, 5], "log_scale": False, "value_type": "float", "digits": 2},
+    {
+        "name": "a1",
+        "type": "range",
+        "bounds": [0.1, 10],
+        "log_scale": True,
+        "value_type": "float",
+        "digits": 2,
+    },
+    {
+        "name": "a2",
+        "type": "range",
+        "bounds": [0.1, 10],
+        "log_scale": True,
+        "value_type": "float",
+        "digits": 2,
+    },
+    {
+        "name": "a3",
+        "type": "range",
+        "bounds": [-5, 5],
+        "log_scale": False,
+        "value_type": "float",
+        "digits": 2,
+    },
+    {
+        "name": "a4",
+        "type": "range",
+        "bounds": [-5, 5],
+        "log_scale": False,
+        "value_type": "float",
+        "digits": 2,
+    },
+    {
+        "name": "a5",
+        "type": "range",
+        "bounds": [-5, 5],
+        "log_scale": False,
+        "value_type": "float",
+        "digits": 2,
+    },
+    {
+        "name": "a6",
+        "type": "range",
+        "bounds": [-5, 5],
+        "log_scale": False,
+        "value_type": "float",
+        "digits": 2,
+    },
+    {
+        "name": "a7",
+        "type": "range",
+        "bounds": [-5, 5],
+        "log_scale": False,
+        "value_type": "float",
+        "digits": 2,
+    },
+    {
+        "name": "a8",
+        "type": "range",
+        "bounds": [-5, 5],
+        "log_scale": False,
+        "value_type": "float",
+        "digits": 2,
+    },
 ]
 
 objectives = {
     "average_knowledge": ObjectiveProperties(minimize=False),
     "average_knowledge_per_hour": ObjectiveProperties(minimize=False),
 }
-
-CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
-checkpoint_filename = CHECKPOINTS_DIR / (
-    f"SSP-MMC_Smax={ax_seed}_params={len(parameters)}_avg.json"
-)
-
-if os.path.isfile(checkpoint_filename):
-    file_size = os.path.getsize(checkpoint_filename)
-
-    try:
-        with open(checkpoint_filename, "r") as f:
-            content = f.read()
-            try:
-                json_content = json.loads(content)
-                if "experiment" in json_content:
-                    pass
-                else:
-                    print("WARNING: File doesn't contain 'experiment' key")
-            except json.JSONDecodeError:
-                print("ERROR: File does not contain valid JSON")
-    except Exception as e:
-        print(f"Error reading file: {e}")
-else:
-    print("Checkpoint file does not exist")
-
-loaded_flag = False
-if os.path.isfile(checkpoint_filename):
-    try:
-        print(f"Loading checkpoint from {checkpoint_filename}")
-        with DelayedKeyboardInterrupt():
-            ax = AxClient.load_from_json_file(checkpoint_filename)
-        ax._random_seed = ax_seed
-        assert ax._random_seed == ax_seed
-        completed_trials = len(ax.experiment.trials)
-        if completed_trials > 0:
-            loaded_flag = True
-        else:
-            loaded_flag = False
-        print(f"Successfully loaded experiment with {completed_trials} completed trials")
-    except Exception as e:
-        print(f"Error loading checkpoint: {e}")
-        raise SystemExit(1)
-else:
-    ax = AxClient(random_seed=ax_seed, verbose_logging=False)
-    ax.create_experiment(
-        name="SSP-MMC, Bayesian search", parameters=parameters, objectives=objectives
-    )
-    completed_trials = 0
-    ax.save_to_json_file(checkpoint_filename)
 
 
 def pareto(frontier, calc_knee=False):
@@ -433,8 +471,12 @@ def _calculate_advantage(twod_list_dr, twod_list_ssp_mmc):
                 if index not in crappy_ssp_mmc_indices:
                     crappy_ssp_mmc_indices.append(index)
 
-        closest_knowledge_dr_index = knowledge_differences.index(min(knowledge_differences))
-        closest_efficiency_dr_index = efficiency_differences.index(min(efficiency_differences))
+        closest_knowledge_dr_index = knowledge_differences.index(
+            min(knowledge_differences)
+        )
+        closest_efficiency_dr_index = efficiency_differences.index(
+            min(efficiency_differences)
+        )
         closest_knowledge_dr = twod_list_dr[closest_knowledge_dr_index][0]
         closest_efficiency_dr = twod_list_dr[closest_efficiency_dr_index][0]
         dr_differences.append(closest_knowledge_dr - closest_efficiency_dr)
@@ -507,9 +549,10 @@ def _propose_new_candidate(twod_list_ssp_mmc, crappy_ssp_mmc_indices):
                 random_weight_better = float(np.random.uniform(1.5, 4))
                 random_weight_worse = float(np.random.uniform(0.7, 1))
 
-                w_avg_param = (random_weight_better * better_param + random_weight_worse * worse_param) / (
-                    random_weight_better + random_weight_worse
-                )
+                w_avg_param = (
+                    random_weight_better * better_param
+                    + random_weight_worse * worse_param
+                ) / (random_weight_better + random_weight_worse)
                 new_candidate.update({key: round(w_avg_param, 2)})
             elif strategy == "mutate":
                 better_param = better_candidate.get(key)
@@ -517,9 +560,13 @@ def _propose_new_candidate(twod_list_ssp_mmc, crappy_ssp_mmc_indices):
                 mutation = float(np.random.normal(0, 0.1))
 
                 if key in ["a1", "a2"]:
-                    new_param = max(min(round(better_param * (1 + mutation), 2), 10.0), 0.1)
+                    new_param = max(
+                        min(round(better_param * (1 + mutation), 2), 10.0), 0.1
+                    )
                 else:
-                    new_param = max(min(round(better_param * (1 + mutation), 2), 5.0), -5.0)
+                    new_param = max(
+                        min(round(better_param * (1 + mutation), 2), 5.0), -5.0
+                    )
                 new_candidate.update({key: new_param})
             else:
                 raise Exception("Unknown candidate generation strategy")
@@ -567,7 +614,9 @@ def advantage_maximizer(frontier, propose_candidate=False, print_for_script=Fals
     max_diff_drs = advantage["max_diff_drs"]
 
     if max_diff_params is not None and not propose_candidate:
-        print(f"    Hyperparameters that provide the biggest advantage={max_diff_params[0]}")
+        print(
+            f"    Hyperparameters that provide the biggest advantage={max_diff_params[0]}"
+        )
         print(f"    You get the average knowledge of DR={100 * max_diff_drs[0]:.0f}%")
         print(f"    You get the efficiency of DR={100 * max_diff_drs[1]:.0f}%")
         print("")
@@ -589,6 +638,10 @@ def advantage_maximizer(frontier, propose_candidate=False, print_for_script=Fals
 
 def run_optimizer():
     global completed_trials
+    if checkpoint_filename is None:
+        raise RuntimeError("Checkpoint filename is not initialized.")
+    if POLICY_CONFIGS_PATH_LOCAL is None:
+        raise RuntimeError("Policy configs path is not initialized.")
 
     printed_flag = False
     stable_hypervolume_checks = 0
@@ -639,10 +692,7 @@ def run_optimizer():
                     break
 
             print(f"Starting trial {i}/{total_trials}")
-            if (
-                i >= MANUAL_CANDIDATE_START_TRIAL
-                and i % MANUAL_CANDIDATE_INTERVAL == 0
-            ):
+            if i >= MANUAL_CANDIDATE_START_TRIAL and i % MANUAL_CANDIDATE_INTERVAL == 0:
                 frontier = ax.get_pareto_optimal_parameters()
                 parameters = advantage_maximizer(frontier, propose_candidate=True)
                 if parameters is not None:
@@ -654,7 +704,9 @@ def run_optimizer():
                 parameters, trial_index = ax.get_next_trial()
 
             torch.cuda.empty_cache()
-            ax.complete_trial(trial_index=trial_index, raw_data=multi_objective_function(parameters))
+            ax.complete_trial(
+                trial_index=trial_index, raw_data=multi_objective_function(parameters)
+            )
 
             with DelayedKeyboardInterrupt():
                 ax.save_to_json_file(checkpoint_filename)
@@ -663,12 +715,67 @@ def run_optimizer():
     pareto(frontier)
     policy_configs = advantage_maximizer(frontier, print_for_script=True)
     if policy_configs:
-        save_policy_configs(policy_configs, POLICY_CONFIGS_PATH)
-        print(f"Saved policy configs to {POLICY_CONFIGS_PATH}")
+        save_policy_configs(policy_configs, POLICY_CONFIGS_PATH_LOCAL)
+        print(f"Saved policy configs to {POLICY_CONFIGS_PATH_LOCAL}")
+
+
+def _init_ax(checkpoint_dir):
+    global checkpoint_filename, ax, completed_trials, loaded_flag
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_filename = checkpoint_dir / (
+        f"SSP-MMC_Smax={ax_seed}_params={len(parameters)}_avg.json"
+    )
+
+    if os.path.isfile(checkpoint_filename):
+        try:
+            with open(checkpoint_filename, "r") as f:
+                content = f.read()
+                try:
+                    json_content = json.loads(content)
+                    if "experiment" not in json_content:
+                        print("WARNING: File doesn't contain 'experiment' key")
+                except json.JSONDecodeError:
+                    print("ERROR: File does not contain valid JSON")
+        except Exception as exc:
+            print(f"Error reading file: {exc}")
+    else:
+        print("Checkpoint file does not exist")
+
+    loaded_flag = False
+    if os.path.isfile(checkpoint_filename):
+        try:
+            print(f"Loading checkpoint from {checkpoint_filename}")
+            with DelayedKeyboardInterrupt():
+                ax = AxClient.load_from_json_file(checkpoint_filename)
+            ax._random_seed = ax_seed
+            assert ax._random_seed == ax_seed
+            completed_trials = len(ax.experiment.trials)
+            loaded_flag = completed_trials > 0
+            print(
+                f"Successfully loaded experiment with {completed_trials} completed trials"
+            )
+        except Exception as exc:
+            print(f"Error loading checkpoint: {exc}")
+            raise SystemExit(1) from exc
+    else:
+        ax = AxClient(random_seed=ax_seed, verbose_logging=False)
+        ax.create_experiment(
+            name="SSP-MMC, Bayesian search",
+            parameters=parameters,
+            objectives=objectives,
+        )
+        completed_trials = 0
+        ax.save_to_json_file(checkpoint_filename)
 
 
 def main():
     args = parse_args()
+    global W, DR_BASELINE_PATH_LOCAL, POLICY_CONFIGS_PATH_LOCAL, _DR_BASELINE_CACHE
+    W, _, _ = load_fsrs_weights(args.benchmark_result, args.user_id)
+    DR_BASELINE_PATH_LOCAL = dr_baseline_path_for_user(args.user_id)
+    POLICY_CONFIGS_PATH_LOCAL = policy_configs_path_for_user(args.user_id)
+    _DR_BASELINE_CACHE = None
+    _init_ax(checkpoint_output_dir(args.user_id))
     if args.dr_baseline_only:
         generate_dr_baseline()
         return

@@ -12,6 +12,7 @@ import numpy as np
 try:
     from colorama import Fore, Style
 except ModuleNotFoundError:
+
     class _NoColor:
         RED = ""
         RESET_ALL = ""
@@ -24,7 +25,12 @@ SRC_DIR = ROOT_DIR / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+DEFAULT_BENCHMARK_RESULT = (
+    ROOT_DIR.parent / "srs-benchmark" / "result" / "FSRS-6-recency.jsonl"
+)
+
 from ssp_mmc_fsrs.config import (  # noqa: E402
+    CHECKPOINTS_DIR,
     DEFAULT_FIRST_RATING_OFFSETS,
     DEFAULT_FIRST_RATING_PROB,
     DEFAULT_FIRST_SESSION_LENS,
@@ -54,10 +60,10 @@ from ssp_mmc_fsrs.io import (  # noqa: E402
     save_simulation_results,
 )
 from ssp_mmc_fsrs.policies import (  # noqa: E402
-    anki_sm2_policy,
     create_dr_policy,
     create_fixed_interval_policy,
-    memrise_policy,
+    make_anki_sm2_policy,
+    make_memrise_policy,
 )
 from ssp_mmc_fsrs.simulation import simulate  # noqa: E402
 from ssp_mmc_fsrs.solver import SSPMMCSolver  # noqa: E402
@@ -79,14 +85,93 @@ class DelayedKeyboardInterrupt:
             self.old_handler(*self.signal_received)
 
 
+def _coerce_user_id(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def setup_environment(seed):
     plt.style.use("ggplot")
     np.random.seed(seed)
 
 
-def ensure_output_dirs():
+def policy_output_dir(user_id):
+    if user_id is None:
+        return POLICIES_DIR
+    return POLICIES_DIR / f"user_{user_id}"
+
+
+def checkpoint_output_dir(user_id):
+    if user_id is None:
+        return CHECKPOINTS_DIR
+    return CHECKPOINTS_DIR / f"user_{user_id}"
+
+
+def policy_configs_path_for_user(user_id):
+    return checkpoint_output_dir(user_id) / "policy_configs.json"
+
+
+def dr_baseline_path_for_user(user_id):
+    return checkpoint_output_dir(user_id) / "dr_baseline.json"
+
+
+def ensure_output_dirs(user_id=None):
     for path in (PLOTS_DIR, SIMULATION_DIR, POLICIES_DIR):
         path.mkdir(parents=True, exist_ok=True)
+    if user_id is not None:
+        policy_output_dir(user_id).mkdir(parents=True, exist_ok=True)
+
+
+def load_fsrs_weights(benchmark_result_path, user_id, partition="0"):
+    benchmark_result_path = Path(benchmark_result_path)
+    target_user_id = _coerce_user_id(user_id)
+    if target_user_id is None:
+        raise ValueError(f"Invalid user id: {user_id}")
+    if not benchmark_result_path.exists():
+        raise FileNotFoundError(f"Benchmark results not found: {benchmark_result_path}")
+
+    weights = None
+    with benchmark_result_path.open("r") as f:
+        for line_number, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"Invalid JSON on line {line_number} of {benchmark_result_path}"
+                ) from exc
+
+            entry_user_id = _coerce_user_id(entry.get("user"))
+            if entry_user_id != target_user_id:
+                continue
+            parameters = entry.get("parameters")
+            if not isinstance(parameters, dict):
+                raise ValueError(
+                    f"Invalid parameters for user {target_user_id} in "
+                    f"{benchmark_result_path}"
+                )
+            if partition not in parameters:
+                raise ValueError(
+                    f"Missing partition {partition} for user {target_user_id} in "
+                    f"{benchmark_result_path}"
+                )
+            raw_weights = parameters[partition]
+            if not isinstance(raw_weights, list):
+                raise ValueError(
+                    f"Invalid weights for user {target_user_id} partition {partition} "
+                    f"in {benchmark_result_path}"
+                )
+            weights = [float(value) for value in raw_weights]
+            break
+
+    if weights is None:
+        raise ValueError(f"User {target_user_id} not found in {benchmark_result_path}")
+
+    return weights, benchmark_result_path.name, partition
 
 
 def normalize_policy_list(policies):
@@ -213,7 +298,9 @@ def plot_simulation(policy, title, results_path, simulate_policy):
     plt.close()
 
 
-def plot_policy_surfaces(solver, cost_matrix, retention_matrix, avg_cost, avg_retention, w):
+def plot_policy_surfaces(
+    solver, cost_matrix, retention_matrix, avg_cost, avg_retention, w
+):
     s_state_mesh_2d, d_state_mesh_2d = np.meshgrid(solver.s_state, solver.d_state)
     fig = plt.figure(figsize=(16, 8.5))
     ax = fig.add_subplot(131, projection="3d")
@@ -225,9 +312,7 @@ def plot_policy_surfaces(solver, cost_matrix, retention_matrix, avg_cost, avg_re
     ax.set_box_aspect(None, zoom=0.8)
 
     ax = fig.add_subplot(132, projection="3d")
-    ax.plot_surface(
-        s_state_mesh_2d, d_state_mesh_2d, retention_matrix, cmap="viridis"
-    )
+    ax.plot_surface(s_state_mesh_2d, d_state_mesh_2d, retention_matrix, cmap="viridis")
     ax.set_xlabel("Stability")
     ax.set_ylabel("Difficulty")
     ax.set_zlabel("Retention")
@@ -279,8 +364,10 @@ def _policy_key(title, params):
     return (title, normalized_json)
 
 
-def _load_policy_index(policy_dir):
+def _load_policy_index(policy_dir, user_id=None):
     policy_dir = Path(policy_dir)
+    if user_id is not None:
+        policy_dir = policy_output_dir(user_id)
     index = {}
     for meta_path in policy_dir.glob("*.json"):
         try:
@@ -288,6 +375,20 @@ def _load_policy_index(policy_dir):
                 meta = json.load(f)
         except json.JSONDecodeError:
             continue
+        meta_user_id = meta.get("user_id")
+        if meta_user_id is None:
+            raise ValueError(
+                f"Policy metadata missing user_id: {meta_path}. "
+                "Regenerate policies with --user-id."
+            )
+        meta_user_id = _coerce_user_id(meta_user_id)
+        if meta_user_id is None:
+            raise ValueError(f"Invalid user_id in policy metadata: {meta_path}")
+        if user_id is not None and meta_user_id != _coerce_user_id(user_id):
+            raise ValueError(
+                f"Policy user_id mismatch for {meta_path}: "
+                f"metadata has {meta_user_id}, expected {user_id}."
+            )
         title = meta.get("title")
         hyperparams = meta.get("hyperparams")
         if not title or hyperparams is None:
@@ -296,17 +397,18 @@ def _load_policy_index(policy_dir):
     return index
 
 
-def run_ssp_mmc_configs(policy_configs, results_path, simulate_policy, device):
+def run_ssp_mmc_configs(policy_configs, results_path, simulate_policy, device, user_id):
     last_solver = None
     last_retention_matrix = None
     last_init_stabilities = None
     last_init_difficulties = None
 
-    policy_index = _load_policy_index(POLICIES_DIR)
+    policy_dir = policy_output_dir(user_id)
+    policy_index = _load_policy_index(POLICIES_DIR, user_id=user_id)
     if not policy_index:
         raise FileNotFoundError(
-            f"No SSP-MMC policies found in {POLICIES_DIR}. "
-            "Run experiments/generate_ssp_mmc_policies.py first."
+            f"No SSP-MMC policies found in {policy_dir}. "
+            f"Run experiments/generate_ssp_mmc_policies.py --user-id {user_id} first."
         )
 
     for policy_config in policy_configs:
@@ -316,9 +418,9 @@ def run_ssp_mmc_configs(policy_configs, results_path, simulate_policy, device):
         if meta_path is None:
             raise FileNotFoundError(
                 f"Missing SSP-MMC policy for {title}. "
-                "Run experiments/generate_ssp_mmc_policies.py first."
+                f"Run experiments/generate_ssp_mmc_policies.py --user-id {user_id} first."
             )
-        policy_data = load_policy(meta_path, device=device)
+        policy_data = load_policy(meta_path, device=device, user_id=user_id)
         solver = policy_data["solver"]
         retention_matrix = policy_data["retention_matrix"]
 
@@ -337,7 +439,14 @@ def run_ssp_mmc_configs(policy_configs, results_path, simulate_policy, device):
     )
 
 
-def generate_ssp_mmc_policies(policy_configs, w):
+def generate_ssp_mmc_policies(
+    policy_configs,
+    w,
+    user_id,
+    weights_source,
+    weights_partition,
+):
+    policy_dir = policy_output_dir(user_id)
     for policy_config in policy_configs:
         solver = SSPMMCSolver(
             review_costs=DEFAULT_REVIEW_COSTS,
@@ -367,12 +476,15 @@ def generate_ssp_mmc_policies(policy_configs, w):
 
         title = ssp_mmc_title(policy_config)
         save_policy(
-            POLICIES_DIR,
+            policy_dir,
             title,
             solver,
             cost_matrix,
             retention_matrix,
             policy_config["params"],
+            user_id=user_id,
+            weights_source=weights_source,
+            weights_partition=weights_partition,
         )
 
         plt.tight_layout()
@@ -504,9 +616,9 @@ def evaluate_dr_thresholds(w):
     return r_values, costs
 
 
-def simulate_dr_policies(results_path, simulate_policy):
+def simulate_dr_policies(results_path, simulate_policy, w):
     for r in dr_range():
-        dr_policy = create_dr_policy(r)
+        dr_policy = create_dr_policy(r, w=w)
         plot_simulation(dr_policy, f"DR={r:.2f}", results_path, simulate_policy)
 
 
@@ -525,9 +637,9 @@ def plot_cost_vs_retention(costs, r_range):
     plt.close(fig)
 
 
-def run_fixed_interval_policies(results_path, simulate_policy):
+def run_fixed_interval_policies(results_path, simulate_policy, w):
     for fixed_interval in [7, 14, 20, 30, 50, 75, 100]:
-        fixed_policy = create_fixed_interval_policy(fixed_interval)
+        fixed_policy = create_fixed_interval_policy(fixed_interval, w=w)
         plot_simulation(
             fixed_policy, f"Interval={fixed_interval}", results_path, simulate_policy
         )
@@ -609,9 +721,9 @@ def plot_pareto_frontier(results_path, policy_configs):
 
     assert len(ssp_mmc_x) == len(ssp_mmc_y), f"{len(ssp_mmc_x)}, {len(ssp_mmc_y)}"
     assert len(fixed_dr_x) == len(fixed_dr_y), f"{len(fixed_dr_x)}, {len(fixed_dr_y)}"
-    assert len(fixed_intervals_x) == len(
-        fixed_intervals_y
-    ), f"{len(fixed_intervals_x)}, {len(fixed_intervals_y)}"
+    assert len(fixed_intervals_x) == len(fixed_intervals_y), (
+        f"{len(fixed_intervals_x)}, {len(fixed_intervals_y)}"
+    )
     assert len(other_x) == len(other_y), f"{len(other_x)}, {len(other_y)}"
 
     def border_aware_text(x_min, x_max, y_min, y_max, x, y, text, **kwargs):
@@ -701,9 +813,10 @@ def plot_pareto_frontier(results_path, policy_configs):
         (max([entry["memorized_average"] for entry in simulation_results]) / 200)
     )
     y_min = 0
-    y_max = max(
-        [entry["avg_accum_memorized_per_hour"] for entry in simulation_results]
-    ) * 1.03
+    y_max = (
+        max([entry["avg_accum_memorized_per_hour"] for entry in simulation_results])
+        * 1.03
+    )
 
     plt.xlim([x_min, x_max])
     plt.ylim([y_min, y_max])
@@ -773,8 +886,8 @@ def plot_pareto_frontier(results_path, policy_configs):
     plt.xticks(fontsize=16, color="black")
     plt.yticks(fontsize=16, color="black")
     plt.title(
-        f"Pareto frontier (duration of the simulation={LEARN_SPAN/365:.0f} years,"
-        f"\ndeck size={DECK_SIZE}, new cards/day=10, S_max={S_MAX/365:.0f} years",
+        f"Pareto frontier (duration of the simulation={LEARN_SPAN / 365:.0f} years,"
+        f"\ndeck size={DECK_SIZE}, new cards/day=10, S_max={S_MAX / 365:.0f} years",
         fontsize=24,
     )
     plt.grid(True, ls="--")
@@ -806,8 +919,9 @@ def run_experiment(
     device,
     dr_baseline_path,
     policies,
+    user_id,
 ):
-    ensure_output_dirs()
+    ensure_output_dirs(user_id=user_id)
     save_simulation_results([], SIMULATION_RESULTS_PATH)
 
     policies = normalize_policy_list(policies)
@@ -818,6 +932,8 @@ def run_experiment(
     simulate_policy = simulate_policy_factory(
         w, device, learn_limit_per_day, max_studying_time_per_day
     )
+    memrise_policy = make_memrise_policy(w=w)
+    anki_sm2_policy = make_anki_sm2_policy(w=w)
 
     solver = None
     retention_matrix = None
@@ -837,6 +953,7 @@ def run_experiment(
             SIMULATION_RESULTS_PATH,
             simulate_policy,
             device,
+            user_id=user_id,
         )
 
     if "memrise" in policies:
@@ -854,14 +971,14 @@ def run_experiment(
         )
 
     if "dr" in policies:
-        simulate_dr_policies(SIMULATION_RESULTS_PATH, simulate_policy)
+        simulate_dr_policies(SIMULATION_RESULTS_PATH, simulate_policy, w)
         print("--------------------------------")
         save_dr_baseline_from_results(SIMULATION_RESULTS_PATH, dr_baseline_path)
     else:
         print("Skipping DR sweep and baseline generation.")
 
     if "interval" in policies:
-        run_fixed_interval_policies(SIMULATION_RESULTS_PATH, simulate_policy)
+        run_fixed_interval_policies(SIMULATION_RESULTS_PATH, simulate_policy, w)
 
     print(
         "| Scheduling Policy | Reviews per day (average, lower=better) | "

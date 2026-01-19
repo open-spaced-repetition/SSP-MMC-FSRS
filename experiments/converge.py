@@ -13,10 +13,13 @@ for path in (ROOT_DIR, SRC_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from ssp_mmc_fsrs.config import CHECKPOINTS_DIR, POLICY_CONFIGS_PATH  # noqa: E402
+from ssp_mmc_fsrs.config import CHECKPOINTS_DIR  # noqa: E402
 from ssp_mmc_fsrs.io import load_policy_configs  # noqa: E402
 from ssp_mmc_fsrs.solver import SSPMMCSolver  # noqa: E402
-from experiments.lib import DelayedKeyboardInterrupt  # noqa: E402
+from experiments.lib import (  # noqa: E402
+    DelayedKeyboardInterrupt,
+    policy_configs_path_for_user,
+)
 
 
 def parse_args():
@@ -45,6 +48,12 @@ def parse_args():
         default=CHECKPOINTS_DIR / "unconverged_users.json",
         help="Path to unconverged users JSON file.",
     )
+    parser.add_argument(
+        "--user-id",
+        type=int,
+        default=1,
+        help="User ID for selecting SSP-MMC hyperparameter configs.",
+    )
     parser.add_argument("--workers", type=int, default=2, help="Process pool size.")
     return parser.parse_args()
 
@@ -59,7 +68,9 @@ def load_existing_results(filename: Path):
         with DelayedKeyboardInterrupt():
             with open(filename, "r") as f:
                 data = json.load(f)
-                return data.get("processed_users", {}), data.get("unconverged_users", [])
+                return data.get("processed_users", {}), data.get(
+                    "unconverged_users", []
+                )
     except FileNotFoundError:
         return {}, []
 
@@ -132,11 +143,12 @@ def main():
     print(f"Processing {len(remaining_users)} remaining users")
 
     try:
-        policy_configs = load_policy_configs(POLICY_CONFIGS_PATH)
+        policy_configs_path = policy_configs_path_for_user(args.user_id)
+        policy_configs = load_policy_configs(policy_configs_path)
     except FileNotFoundError as exc:
         raise SystemExit(
-            f"Missing policy configs at {POLICY_CONFIGS_PATH}. "
-            "Run the hyperparameter optimizer to generate them."
+            f"Missing policy configs at {policy_configs_path}. "
+            f"Run experiments/hyperparameter_optimizer.py --user-id {args.user_id} first."
         ) from exc
 
     with ProcessPoolExecutor(max_workers=args.workers) as executor:

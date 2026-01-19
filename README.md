@@ -16,18 +16,18 @@ uv sync
 uv sync --extra experiments
 ```
 
-Run the hyperparameter optimizer. It will generate a DR baseline at
-`outputs/checkpoints/dr_baseline.json` if missing, and write policy configs to
-`outputs/checkpoints/policy_configs.json`.
+Run the hyperparameter optimizer for a user (defaults to user 1). It will generate
+a DR baseline at `outputs/checkpoints/user_<id>/dr_baseline.json` if missing, and
+write policy configs to `outputs/checkpoints/user_<id>/policy_configs.json`.
 
 ```bash
-uv run experiments/hyperparameter_optimizer.py
+uv run experiments/hyperparameter_optimizer.py --user-id 1
 ```
 
-Generate SSP-MMC policies and surface plots (required before simulating SSP-MMC):
+Generate SSP-MMC policies and surface plots for a user (required before simulating SSP-MMC):
 
 ```bash
-uv run experiments/generate_ssp_mmc_policies.py
+uv run experiments/generate_ssp_mmc_policies.py --user-id 1
 ```
 
 SSP-MMC-FSRS policy titles include a short hash derived from the hyperparameters so
@@ -36,10 +36,10 @@ pull updates that affect policy serialization, regenerate policies before runnin
 simulations.
 
 Run the main simulation (generates plots and simulations under `outputs/`
-and refreshes the DR baseline JSON when DR policies are simulated):
+and refreshes the user DR baseline JSON when DR policies are simulated):
 
 ```bash
-uv run experiments/simulate.py
+uv run experiments/simulate.py --user-id 1
 ```
 
 The simulation summary is written to `outputs/checkpoints/simulation_results.json`.
@@ -52,13 +52,14 @@ uv run experiments/simulate.py --policies all
 uv run experiments/simulate.py --policies ssp-mmc,memrise,anki-sm-2
 uv run experiments/simulate.py --policies dr,interval
 uv run experiments/simulate.py --seed 123 --device cpu
+uv run experiments/simulate.py --user-id 2
 ```
 
-Run the convergence checks (reads `outputs/checkpoints/policy_configs.json`; defaults assume sibling repos exist, override with flags):
+Run the convergence checks (reads `outputs/checkpoints/user_<id>/policy_configs.json`; defaults assume sibling repos exist, override with flags):
 
 ```bash
 uv run experiments/converge.py --help
-uv run experiments/converge.py --button-usage <path> --parameters <path>
+uv run experiments/converge.py --user-id 1 --button-usage <path> --parameters <path>
 ```
 
 ## Project layout

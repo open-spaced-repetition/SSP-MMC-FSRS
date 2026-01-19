@@ -46,6 +46,13 @@ def _jsonify(value):
     return value
 
 
+def _coerce_user_id(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _policy_hash(hyperparams):
     normalized = {k: _jsonify(v) for k, v in hyperparams.items()}
     payload = json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode(
@@ -54,9 +61,29 @@ def _policy_hash(hyperparams):
     return hashlib.sha1(payload).hexdigest()[:8]
 
 
-def save_policy(output_dir, title, solver, cost_matrix, retention_matrix, hyperparams):
+def save_policy(
+    output_dir,
+    title,
+    solver,
+    cost_matrix,
+    retention_matrix,
+    hyperparams,
+    user_id=None,
+    weights_source=None,
+    weights_partition=None,
+):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    if user_id is None:
+        raise ValueError("user_id is required when saving policies.")
+    if not weights_source:
+        raise ValueError("weights_source is required when saving policies.")
+    if weights_partition is None:
+        raise ValueError("weights_partition is required when saving policies.")
+
+    user_id = _coerce_user_id(user_id)
+    if user_id is None:
+        raise ValueError("Invalid user_id for policy metadata.")
     policy_id = _policy_hash(hyperparams)
     base_name = _safe_slug(title)
     npz_path = output_dir / f"{base_name}.npz"
@@ -76,6 +103,9 @@ def save_policy(output_dir, title, solver, cost_matrix, retention_matrix, hyperp
         "policy_id": policy_id,
         "policy_file": npz_path.name,
         "created_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "user_id": user_id,
+        "weights_source": str(weights_source),
+        "weights_partition": str(weights_partition),
         "hyperparams": {k: _jsonify(v) for k, v in hyperparams.items()},
         "state_space": {
             "s_min": float(solver.s_min),
@@ -103,7 +133,7 @@ def save_policy(output_dir, title, solver, cost_matrix, retention_matrix, hyperp
         json.dump(meta, f, indent=2, sort_keys=True)
 
 
-def load_policy(policy_path, device=None):
+def load_policy(policy_path, device=None, user_id=None):
     policy_path = Path(policy_path)
     meta = None
     meta_path = None
@@ -145,6 +175,20 @@ def load_policy(policy_path, device=None):
         raise ValueError(f"Missing metadata JSON for policy: {npz_path}")
 
     state_space = meta["state_space"]
+    meta_user_id = meta.get("user_id")
+    if meta_user_id is None:
+        raise ValueError(
+            f"Policy metadata missing user_id: {meta_path}. "
+            "Regenerate policies with --user-id."
+        )
+    meta_user_id = _coerce_user_id(meta_user_id)
+    if meta_user_id is None:
+        raise ValueError(f"Invalid user_id in policy metadata: {meta_path}")
+    if user_id is not None and meta_user_id != _coerce_user_id(user_id):
+        raise ValueError(
+            f"Policy user_id mismatch for {meta_path}: "
+            f"metadata has {meta_user_id}, expected {user_id}."
+        )
     w_local = np.array(meta.get("w", DEFAULT_W), dtype=float)
     review_costs_local = np.array(
         meta.get("review_costs", DEFAULT_REVIEW_COSTS), dtype=float

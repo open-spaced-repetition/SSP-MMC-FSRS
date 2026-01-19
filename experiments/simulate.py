@@ -10,14 +10,15 @@ for path in (ROOT_DIR, SRC_DIR):
 
 from ssp_mmc_fsrs.config import (  # noqa: E402
     DEFAULT_SEED,
-    DEFAULT_W,
-    DR_BASELINE_PATH,
-    POLICY_CONFIGS_PATH,
     default_device,
 )
 from ssp_mmc_fsrs.io import load_policy_configs  # noqa: E402
 from experiments.lib import (  # noqa: E402
+    DEFAULT_BENCHMARK_RESULT,
+    dr_baseline_path_for_user,
+    load_fsrs_weights,
     normalize_policy_list,
+    policy_configs_path_for_user,
     run_experiment,
     setup_environment,
 )
@@ -51,6 +52,18 @@ def parse_args():
             "Examples: ssp-mmc,memrise,anki-sm-2,dr,interval or all."
         ),
     )
+    parser.add_argument(
+        "--user-id",
+        type=int,
+        default=1,
+        help="User ID for selecting FSRS weights and SSP-MMC policies.",
+    )
+    parser.add_argument(
+        "--benchmark-result",
+        type=Path,
+        default=DEFAULT_BENCHMARK_RESULT,
+        help="FSRS benchmark result JSONL to read user weights from.",
+    )
     return parser.parse_args()
 
 
@@ -58,30 +71,34 @@ def main():
     args = parse_args()
     setup_environment(args.seed)
     simulation_type = args.simulation_type
-    w = DEFAULT_W
+    w, _, _ = load_fsrs_weights(args.benchmark_result, args.user_id)
     device = args.device if args.device else default_device()
 
-    raw_policies = [policy.strip() for policy in args.policies.split(",") if policy.strip()]
+    raw_policies = [
+        policy.strip() for policy in args.policies.split(",") if policy.strip()
+    ]
     if not raw_policies:
         raise SystemExit("At least one policy must be specified.")
     policies = normalize_policy_list(raw_policies)
 
     policy_configs = None
     if "ssp-mmc" in policies:
+        policy_configs_path = policy_configs_path_for_user(args.user_id)
         try:
-            policy_configs = load_policy_configs(POLICY_CONFIGS_PATH)
+            policy_configs = load_policy_configs(policy_configs_path)
         except FileNotFoundError as exc:
             raise SystemExit(
-                f"Missing policy configs at {POLICY_CONFIGS_PATH}. "
-                "Run the hyperparameter optimizer to generate them."
+                f"Missing policy configs at {policy_configs_path}. "
+                f"Run experiments/hyperparameter_optimizer.py --user-id {args.user_id} first."
             ) from exc
     run_experiment(
         policy_configs=policy_configs,
         simulation_type=simulation_type,
         w=w,
         device=device,
-        dr_baseline_path=DR_BASELINE_PATH,
+        dr_baseline_path=dr_baseline_path_for_user(args.user_id),
         policies=policies,
+        user_id=args.user_id,
     )
 
 

@@ -18,7 +18,9 @@ from .config import (
 from .core import power_forgetting_curve_torch
 
 
-def _call_policy_with_fallback(policy, stability, difficulty, prev_interval, grade, ease):
+def _call_policy_with_fallback(
+    policy, stability, difficulty, prev_interval, grade, ease
+):
     try:
         sig = inspect.signature(policy)
         if len(sig.parameters) >= 5:
@@ -74,7 +76,9 @@ def simulate(
 ):
     torch.manual_seed(seed)
     np.random.seed(seed)
-    due = torch.full((parallel, deck_size), learn_span, device=device, dtype=torch.float32)
+    due = torch.full(
+        (parallel, deck_size), learn_span, device=device, dtype=torch.float32
+    )
     difficulty = torch.full_like(due, 1e-10)
     stability = torch.full_like(due, 1e-10, dtype=torch.float64)
     ease = torch.full_like(due, 2.5)

@@ -71,7 +71,9 @@ def bellman_solver(
             state = optimal_value
 
     end = time.perf_counter()
-    print(f"Done in {end - start:.1f} seconds. Iterations: {it}/{n_iter}, cost diff: {cost_diff}")
+    print(
+        f"Done in {end - start:.1f} seconds. Iterations: {it}/{n_iter}, cost diff: {cost_diff}"
+    )
     return state.cpu().numpy(), optimal_action.cpu().numpy()
 
 
@@ -123,9 +125,7 @@ class SSPMMCSolver:
 
     def stability_short_term(self, s):
         rating = 3
-        sinc = np.exp(self.w[17] * (rating - 3 + self.w[18])) * np.power(
-            s, -self.w[19]
-        )
+        sinc = np.exp(self.w[17] * (rating - 3 + self.w[18])) * np.power(s, -self.w[19])
         return s * sinc
 
     def init_s(self, rating):
@@ -163,9 +163,9 @@ class SSPMMCSolver:
         small_mask = s <= self.s_mid
 
         result[small_mask] = np.clip(
-            np.ceil((np.log(s[small_mask]) - np.log(self.s_min)) / self.short_step).astype(
-                int
-            ),
+            np.ceil(
+                (np.log(s[small_mask]) - np.log(self.s_min)) / self.short_step
+            ).astype(int),
             0,
             len(self.s_state_small) - 1,
         )
@@ -186,9 +186,9 @@ class SSPMMCSolver:
         small_mask = s <= self.s_mid
 
         result[small_mask] = torch.clamp(
-            torch.ceil((torch.log(s[small_mask]) - np.log(self.s_min)) / self.short_step).to(
-                torch.int
-            ),
+            torch.ceil(
+                (torch.log(s[small_mask]) - np.log(self.s_min)) / self.short_step
+            ).to(torch.int),
             0,
             len(self.s_state_small) - 1,
         )
@@ -281,7 +281,9 @@ class SSPMMCSolver:
         )
 
     def solve(self, hyperparams, n_iter=100_000):
-        ivl_mesh = next_interval(self.s_state_mesh_3d, self.r_state_mesh_3d, -self.w[20])
+        ivl_mesh = next_interval(
+            self.s_state_mesh_3d, self.r_state_mesh_3d, -self.w[20]
+        )
         self.r_state_mesh_3d = power_forgetting_curve(
             ivl_mesh, self.s_state_mesh_3d, -self.w[20]
         )
@@ -341,7 +343,9 @@ class SSPMMCSolver:
 
             costs.append(zeros + success_cost)
 
-        assert len(transitions) == len(transition_probs) and len(transitions) == len(costs)
+        assert len(transitions) == len(transition_probs) and len(transitions) == len(
+            costs
+        )
 
         self.cost_matrix, optimal_r_indices = bellman_solver(
             n_iter, self.cost_matrix, transitions, transition_probs, costs
@@ -402,7 +406,9 @@ class SSPMMCSolver:
         self.s_state_mesh_2d, self.d_state_mesh_2d = np.meshgrid(
             self.s_state, self.d_state
         )
-        ivl_mesh = next_interval(self.s_state_mesh_2d, self.r_state_mesh_2d, -self.w[20])
+        ivl_mesh = next_interval(
+            self.s_state_mesh_2d, self.r_state_mesh_2d, -self.w[20]
+        )
         self.r_state_mesh_2d = power_forgetting_curve(
             ivl_mesh, self.s_state_mesh_2d, -self.w[20]
         )

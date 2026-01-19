@@ -39,9 +39,7 @@ def s_max_aware_fixed_interval(s, d, fixed_interval, decay, w, s_max):
         decay,
     )
     int_base = torch.as_tensor(int_base, device=s.device)
-    return torch.where(
-        s > s_max, 1e9, torch.minimum(int_base, int_req)
-    )
+    return torch.where(s > s_max, 1e9, torch.minimum(int_base, int_req))
 
 
 def make_anki_sm2_policy(w=None, s_max=S_MAX):
@@ -102,7 +100,9 @@ def make_anki_sm2_policy(w=None, s_max=S_MAX):
             is_new_card, new_card_interval, existing_card_interval
         )
 
-        result_interval = torch.maximum(torch.ones_like(result_interval), result_interval)
+        result_interval = torch.maximum(
+            torch.ones_like(result_interval), result_interval
+        )
 
         final_interval = s_max_aware_fixed_interval(
             stability, difficulty, result_interval, decay, w, s_max
@@ -162,7 +162,9 @@ def create_fixed_interval_policy(interval, w=None, s_max=S_MAX):
     decay = -w[20]
 
     def fixed_policy(stability, difficulty, prev_interval, grade):
-        return s_max_aware_fixed_interval(stability, difficulty, interval, decay, w, s_max)
+        return s_max_aware_fixed_interval(
+            stability, difficulty, interval, decay, w, s_max
+        )
 
     return fixed_policy
 
