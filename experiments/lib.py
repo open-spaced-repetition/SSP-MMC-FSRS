@@ -935,7 +935,6 @@ def plot_pareto_frontier(results_path, policy_configs, plots_dir, user_id=None):
     plt.legend(fontsize=18, loc="lower left", facecolor="white")
     plt.tight_layout(rect=[0, 0.05, 1, 1])
     plt.savefig(plots_dir / "Pareto frontier.png")
-    plt.show()
     plt.close()
 
 
