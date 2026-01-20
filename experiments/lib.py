@@ -734,7 +734,7 @@ def _categorize_plot_data(simulation_results):
     return categorized
 
 
-def plot_pareto_frontier(results_path, policy_configs, plots_dir):
+def plot_pareto_frontier(results_path, policy_configs, plots_dir, user_id=None):
     simulation_results = load_simulation_results(results_path)
     if not simulation_results:
         print(f"No simulation results found at {results_path}. Skipping Pareto plot.")
@@ -922,14 +922,18 @@ def plot_pareto_frontier(results_path, policy_configs, plots_dir):
     )
     plt.xticks(fontsize=16, color="black")
     plt.yticks(fontsize=16, color="black")
-    plt.title(
-        f"Pareto frontier (duration of the simulation={LEARN_SPAN / 365:.0f} years,"
-        f"\ndeck size={DECK_SIZE}, new cards/day=10, S_max={S_MAX / 365:.0f} years",
-        fontsize=24,
+    if user_id is None:
+        plt.title("Pareto frontier", fontsize=24)
+    else:
+        plt.title(f"Pareto frontier (user {user_id})", fontsize=24)
+    caption = (
+        f"duration of the simulation={LEARN_SPAN / 365:.0f} years, "
+        f"deck size={DECK_SIZE}, new cards/day=10, S_max={S_MAX / 365:.0f} years"
     )
+    plt.figtext(0.5, 0.02, caption, ha="center", fontsize=12)
     plt.grid(True, ls="--")
     plt.legend(fontsize=18, loc="lower left", facecolor="white")
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0.05, 1, 1])
     plt.savefig(plots_dir / "Pareto frontier.png")
     plt.show()
     plt.close()
@@ -1040,4 +1044,4 @@ def run_experiment(
 
     print_simulation_summary(results_path)
 
-    plot_pareto_frontier(results_path, policy_configs or [], plots_dir)
+    plot_pareto_frontier(results_path, policy_configs or [], plots_dir, user_id=user_id)
