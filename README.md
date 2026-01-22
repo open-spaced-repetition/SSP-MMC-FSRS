@@ -24,6 +24,13 @@ write policy configs to `outputs/checkpoints/user_<id>/policy_configs.json`.
 uv run experiments/hyperparameter_optimizer.py --user-id 1
 ```
 
+Run the hyperparameter optimizer across multiple users (aggregated by mean). Output
+is written under `outputs/checkpoints/multi_users_<label>/`.
+
+```bash
+uv run experiments/hyperparameter_optimizer.py --user-ids 1-10 --aggregate mean
+```
+
 Generate SSP-MMC policies and surface plots for a user (required before simulating SSP-MMC).
 Surface plots are written under `outputs/plots/user_<id>`.
 

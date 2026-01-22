@@ -4,6 +4,7 @@ import os
 import sys
 import warnings
 import time
+import re
 from pathlib import Path
 
 import numpy as np
@@ -31,6 +32,7 @@ from ssp_mmc_fsrs.config import (  # noqa: E402
     LEARN_SPAN,
     MAX_STUDYING_TIME_PER_DAY,
     PARALLEL,
+    CHECKPOINTS_DIR,
     R_MAX,
     R_MIN,
     REVIEW_LIMIT_PER_DAY,
@@ -69,6 +71,8 @@ forget_session_len = DEFAULT_FORGET_SESSION_LEN
 DEVICE = default_device()
 _DR_BASELINE_CACHE = None
 W = None
+W_LIST = None
+AGGREGATE_MODE = "mean"
 DR_BASELINE_PATH_LOCAL = DR_BASELINE_PATH
 POLICY_CONFIGS_PATH_LOCAL = None
 checkpoint_filename = None
@@ -112,6 +116,30 @@ def parse_args():
         help="User ID for selecting FSRS weights and saving outputs.",
     )
     parser.add_argument(
+        "--user-ids",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated user IDs or ranges (e.g. '1,2,5-10') for multi-user "
+            "optimization. Overrides --user-id when provided."
+        ),
+    )
+    parser.add_argument(
+        "--user-ids-file",
+        type=Path,
+        default=None,
+        help=(
+            "Text file containing user IDs or ranges (one per line or comma-separated)."
+        ),
+    )
+    parser.add_argument(
+        "--aggregate",
+        type=str,
+        default="mean",
+        choices=["mean", "median"],
+        help="Aggregation method across users (default: mean).",
+    )
+    parser.add_argument(
         "--benchmark-result",
         type=Path,
         default=DEFAULT_BENCHMARK_RESULT,
@@ -121,11 +149,69 @@ def parse_args():
 
 
 def _require_weights():
-    if W is None:
+    if W is None and not W_LIST:
         raise RuntimeError("FSRS weights are not initialized.")
 
 
-def simulate_policy(policy):
+def _aggregate(values, mode):
+    if not values:
+        return 0.0
+    if mode == "median":
+        return float(np.median(values))
+    return float(np.mean(values))
+
+
+def _parse_user_ids(value):
+    if value is None:
+        return []
+    tokens = []
+    for raw in re.split(r"[,\s]+", value.strip()):
+        token = raw.strip()
+        if token:
+            tokens.append(token)
+    user_ids = []
+    for token in tokens:
+        if "-" in token:
+            start_raw, end_raw = token.split("-", 1)
+            start = int(start_raw)
+            end = int(end_raw)
+            if end < start:
+                start, end = end, start
+            user_ids.extend(range(start, end + 1))
+        else:
+            user_ids.append(int(token))
+    return sorted(set(user_ids))
+
+
+def _load_user_ids_from_file(path):
+    if path is None:
+        return []
+    if not path.exists():
+        raise FileNotFoundError(f"User IDs file not found: {path}")
+    combined = []
+    with path.open("r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            combined.extend(_parse_user_ids(line))
+    return sorted(set(combined))
+
+
+def _user_ids_label(user_ids):
+    if not user_ids:
+        return "users"
+    user_ids = sorted(set(user_ids))
+    if user_ids == list(range(user_ids[0], user_ids[-1] + 1)):
+        label = f"{user_ids[0]}-{user_ids[-1]}"
+    elif len(user_ids) <= 10:
+        label = "_".join(str(uid) for uid in user_ids)
+    else:
+        label = f"{user_ids[0]}-{user_ids[-1]}_n{len(user_ids)}"
+    return f"multi_users_{label}"
+
+
+def simulate_policy(policy, weights):
     _require_weights()
     (
         review_cnt_per_day,
@@ -134,7 +220,7 @@ def simulate_policy(policy):
         cost_per_day,
     ) = simulate(
         parallel=PARALLEL,
-        w=W,
+        w=weights,
         policy=policy,
         device=DEVICE,
         deck_size=DECK_SIZE,
@@ -153,12 +239,30 @@ def generate_dr_baseline():
     dr_baseline = []
     r_range = np.arange(R_MIN, R_MAX, 0.01)
     for r in r_range:
-        dr_policy = create_dr_policy(r, w=W)
-        _, cost_per_day, memorized_cnt_per_day = simulate_policy(dr_policy)
-        accum_cost = np.cumsum(cost_per_day, axis=-1)
-        accum_time_average = accum_cost.mean() / 3600
-        memorized_average = memorized_cnt_per_day.mean()
-        avg_accum_memorized_per_hour = memorized_average / accum_time_average
+        if W_LIST:
+            knowledge_values = []
+            efficiency_values = []
+            for weights in W_LIST:
+                dr_policy = create_dr_policy(r, w=weights)
+                _, cost_per_day, memorized_cnt_per_day = simulate_policy(
+                    dr_policy, weights
+                )
+                accum_cost = np.cumsum(cost_per_day, axis=-1)
+                accum_time_average = accum_cost.mean() / 3600
+                memorized_average = memorized_cnt_per_day.mean()
+                avg_accum_memorized_per_hour = memorized_average / accum_time_average
+                knowledge_values.append(memorized_average)
+                efficiency_values.append(avg_accum_memorized_per_hour)
+
+            memorized_average = _aggregate(knowledge_values, AGGREGATE_MODE)
+            avg_accum_memorized_per_hour = _aggregate(efficiency_values, AGGREGATE_MODE)
+        else:
+            dr_policy = create_dr_policy(r, w=W)
+            _, cost_per_day, memorized_cnt_per_day = simulate_policy(dr_policy, W)
+            accum_cost = np.cumsum(cost_per_day, axis=-1)
+            accum_time_average = accum_cost.mean() / 3600
+            memorized_average = memorized_cnt_per_day.mean()
+            avg_accum_memorized_per_hour = memorized_average / accum_time_average
         dr_baseline.append(
             {
                 "dr": float(r),
@@ -188,49 +292,75 @@ def get_dr_baseline(force=False):
 
 def multi_objective_function(param_dict):
     _require_weights()
-    solver = SSPMMCSolver(
-        review_costs=DEFAULT_REVIEW_COSTS,
-        first_rating_prob=DEFAULT_FIRST_RATING_PROB,
-        review_rating_prob=DEFAULT_REVIEW_RATING_PROB,
-        first_rating_offsets=DEFAULT_FIRST_RATING_OFFSETS,
-        first_session_lens=DEFAULT_FIRST_SESSION_LENS,
-        forget_rating_offset=DEFAULT_FORGET_RATING_OFFSET,
-        forget_session_len=DEFAULT_FORGET_SESSION_LEN,
-        w=W,
-    )
 
-    cost_matrix, retention_matrix = solver.solve(param_dict)
-    retention_matrix_tensor = torch.tensor(retention_matrix, device=DEVICE)
-
-    def ssp_mmc_policy(s, d):
-        d_index = solver.d2i_torch(d)
-        s_index = solver.s2i_torch(s)
-        mask = (d_index >= solver.d_size) | (s_index >= solver.s_size - 1)
-        optimal_interval = torch.zeros_like(s)
-        optimal_interval[~mask] = next_interval_torch(
-            s[~mask],
-            retention_matrix_tensor[d_index[~mask], s_index[~mask]],
-            -W[20],
+    def _evaluate_candidate(weights):
+        solver = SSPMMCSolver(
+            review_costs=DEFAULT_REVIEW_COSTS,
+            first_rating_prob=DEFAULT_FIRST_RATING_PROB,
+            review_rating_prob=DEFAULT_REVIEW_RATING_PROB,
+            first_rating_offsets=DEFAULT_FIRST_RATING_OFFSETS,
+            first_session_lens=DEFAULT_FIRST_SESSION_LENS,
+            forget_rating_offset=DEFAULT_FORGET_RATING_OFFSET,
+            forget_session_len=DEFAULT_FORGET_SESSION_LEN,
+            w=weights,
         )
-        optimal_interval[mask] = np.inf
-        return optimal_interval
 
-    review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(
-        ssp_mmc_policy
-    )
+        cost_matrix, retention_matrix = solver.solve(param_dict)
+        retention_matrix_tensor = torch.tensor(retention_matrix, device=DEVICE)
 
-    accum_cost = np.cumsum(cost_per_day, axis=-1)
-    accum_time_average = accum_cost.mean() / 3600
+        def ssp_mmc_policy(s, d):
+            d_index = solver.d2i_torch(d)
+            s_index = solver.s2i_torch(s)
+            mask = (d_index >= solver.d_size) | (s_index >= solver.s_size - 1)
+            optimal_interval = torch.zeros_like(s)
+            optimal_interval[~mask] = next_interval_torch(
+                s[~mask],
+                retention_matrix_tensor[d_index[~mask], s_index[~mask]],
+                -weights[20],
+            )
+            optimal_interval[mask] = np.inf
+            return optimal_interval
 
-    memorized_average = memorized_cnt_per_day.mean()
+        review_cnt_per_day, cost_per_day, memorized_cnt_per_day = simulate_policy(
+            ssp_mmc_policy, weights
+        )
 
-    avg_accum_memorized_per_hour = memorized_average / accum_time_average
+        accum_cost = np.cumsum(cost_per_day, axis=-1)
+        accum_time_average = accum_cost.mean() / 3600
+        memorized_average = memorized_cnt_per_day.mean()
+        avg_accum_memorized_per_hour = memorized_average / accum_time_average
+        return memorized_average, avg_accum_memorized_per_hour
 
-    print("")
-    print(param_dict)
-    print(f"Average memorized={memorized_average:.0f} cards")
-    print(f"Average memorized/hours={avg_accum_memorized_per_hour:.1f} cards/hour")
-    print("")
+    if W_LIST:
+        knowledge_values = []
+        efficiency_values = []
+        for weights in W_LIST:
+            memorized_average, avg_accum_memorized_per_hour = _evaluate_candidate(
+                weights
+            )
+            knowledge_values.append(memorized_average)
+            efficiency_values.append(avg_accum_memorized_per_hour)
+
+        memorized_average = _aggregate(knowledge_values, AGGREGATE_MODE)
+        avg_accum_memorized_per_hour = _aggregate(efficiency_values, AGGREGATE_MODE)
+        print("")
+        print(param_dict)
+        print(
+            f"Aggregated ({AGGREGATE_MODE}) memorized={memorized_average:.0f} cards "
+            f"across {len(W_LIST)} users"
+        )
+        print(
+            f"Aggregated memorized/hours={avg_accum_memorized_per_hour:.1f} cards/hour"
+        )
+        print("")
+    else:
+        memorized_average, avg_accum_memorized_per_hour = _evaluate_candidate(W)
+        print("")
+        print(param_dict)
+        print(f"Average memorized={memorized_average:.0f} cards")
+        print(f"Average memorized/hours={avg_accum_memorized_per_hour:.1f} cards/hour")
+        print("")
+
     return {
         "average_knowledge": (memorized_average, None),
         "average_knowledge_per_hour": (avg_accum_memorized_per_hour, None),
@@ -770,12 +900,38 @@ def _init_ax(checkpoint_dir):
 
 def main():
     args = parse_args()
-    global W, DR_BASELINE_PATH_LOCAL, POLICY_CONFIGS_PATH_LOCAL, _DR_BASELINE_CACHE
-    W, _, _ = load_fsrs_weights(args.benchmark_result, args.user_id)
-    DR_BASELINE_PATH_LOCAL = dr_baseline_path_for_user(args.user_id)
-    POLICY_CONFIGS_PATH_LOCAL = policy_configs_path_for_user(args.user_id)
+    global \
+        W, \
+        W_LIST, \
+        DR_BASELINE_PATH_LOCAL, \
+        POLICY_CONFIGS_PATH_LOCAL, \
+        _DR_BASELINE_CACHE
+    global AGGREGATE_MODE
+    AGGREGATE_MODE = args.aggregate
+
+    user_ids = []
+    user_ids.extend(_parse_user_ids(args.user_ids))
+    user_ids.extend(_load_user_ids_from_file(args.user_ids_file))
+    user_ids = sorted(set(user_ids))
+
+    if user_ids:
+        W_LIST = [
+            load_fsrs_weights(args.benchmark_result, user_id)[0] for user_id in user_ids
+        ]
+        label = _user_ids_label(user_ids)
+        checkpoint_dir = CHECKPOINTS_DIR / label
+        DR_BASELINE_PATH_LOCAL = checkpoint_dir / "dr_baseline.json"
+        POLICY_CONFIGS_PATH_LOCAL = checkpoint_dir / "policy_configs.json"
+        print(f"Running multi-user optimization for {len(user_ids)} users: {user_ids}")
+        print(f"Aggregate mode: {AGGREGATE_MODE}")
+    else:
+        W, _, _ = load_fsrs_weights(args.benchmark_result, args.user_id)
+        DR_BASELINE_PATH_LOCAL = dr_baseline_path_for_user(args.user_id)
+        POLICY_CONFIGS_PATH_LOCAL = policy_configs_path_for_user(args.user_id)
+        checkpoint_dir = checkpoint_output_dir(args.user_id)
+
     _DR_BASELINE_CACHE = None
-    _init_ax(checkpoint_output_dir(args.user_id))
+    _init_ax(checkpoint_dir)
     if args.dr_baseline_only:
         generate_dr_baseline()
         return
