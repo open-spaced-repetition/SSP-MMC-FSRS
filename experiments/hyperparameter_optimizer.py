@@ -181,15 +181,20 @@ def _parse_user_ids(value):
             tokens.append(token)
     user_ids = []
     for token in tokens:
-        if "-" in token:
-            start_raw, end_raw = token.split("-", 1)
-            start = int(start_raw)
-            end = int(end_raw)
-            if end < start:
-                start, end = end, start
-            user_ids.extend(range(start, end + 1))
-        else:
-            user_ids.append(int(token))
+        try:
+            if "-" in token:
+                start_raw, end_raw = token.split("-", 1)
+                if not start_raw or not end_raw:
+                    raise ValueError("Empty start or end in range")
+                start = int(start_raw)
+                end = int(end_raw)
+                if end < start:
+                    start, end = end, start
+                user_ids.extend(range(start, end + 1))
+            else:
+                user_ids.append(int(token))
+        except ValueError:
+            raise ValueError(f"Invalid user ID or range: '{token}'")
     return sorted(set(user_ids))
 
 
@@ -211,7 +216,6 @@ def _load_user_ids_from_file(path):
 def _user_ids_label(user_ids):
     if not user_ids:
         return "users"
-    user_ids = sorted(set(user_ids))
     if user_ids == list(range(user_ids[0], user_ids[-1] + 1)):
         label = f"{user_ids[0]}-{user_ids[-1]}"
     elif len(user_ids) <= 10:
