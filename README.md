@@ -36,6 +36,7 @@ Surface plots are written under `outputs/plots/user_<id>`.
 
 ```bash
 uv run experiments/generate_ssp_mmc_policies.py --user-id 1
+uv run experiments/generate_ssp_mmc_policies.py --user-id 1 --policy-configs outputs/checkpoints/multi_users_1-10/policy_configs.json
 ```
 
 SSP-MMC-FSRS policy titles include a short hash derived from the hyperparameters so
@@ -60,6 +61,7 @@ uv run experiments/simulate.py --simulation-type lim_time_unlim_reviews
 uv run experiments/simulate.py --policies all
 uv run experiments/simulate.py --policies ssp-mmc,memrise,anki-sm-2
 uv run experiments/simulate.py --policies dr,interval
+uv run experiments/simulate.py --policy-configs outputs/checkpoints/multi_users_1-10/policy_configs.json
 uv run experiments/simulate.py --seed 123 --device cpu
 uv run experiments/simulate.py --user-id 2
 ```

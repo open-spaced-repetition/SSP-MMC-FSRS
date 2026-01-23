@@ -45,6 +45,15 @@ def parse_args():
         help="FSRS benchmark result JSONL to read user weights from.",
     )
     parser.add_argument(
+        "--policy-configs",
+        type=Path,
+        default=None,
+        help=(
+            "Override policy configs JSON path "
+            "(defaults to outputs/checkpoints/user_<id>/policy_configs.json)."
+        ),
+    )
+    parser.add_argument(
         "--button-usage",
         type=Path,
         default=DEFAULT_BUTTON_USAGE,
@@ -57,7 +66,11 @@ def main():
     args = parse_args()
     setup_environment(args.seed)
     ensure_output_dirs(user_id=args.user_id)
-    policy_configs_path = policy_configs_path_for_user(args.user_id)
+    policy_configs_path = (
+        args.policy_configs
+        if args.policy_configs is not None
+        else policy_configs_path_for_user(args.user_id)
+    )
     try:
         policy_configs = load_policy_configs(policy_configs_path)
     except FileNotFoundError as exc:
