@@ -11,8 +11,10 @@ for path in (ROOT_DIR, SRC_DIR):
 from ssp_mmc_fsrs.config import DEFAULT_SEED  # noqa: E402
 from experiments.lib import (  # noqa: E402
     DEFAULT_BENCHMARK_RESULT,
+    DEFAULT_BUTTON_USAGE,
     ensure_output_dirs,
     evaluate_dr_thresholds,
+    load_button_usage_config,
     load_fsrs_weights,
     plot_cost_vs_retention,
     plots_output_dir,
@@ -42,6 +44,12 @@ def parse_args():
         default=DEFAULT_BENCHMARK_RESULT,
         help="FSRS benchmark result JSONL to read user weights from.",
     )
+    parser.add_argument(
+        "--button-usage",
+        type=Path,
+        default=DEFAULT_BUTTON_USAGE,
+        help="Button usage JSONL to read simulation costs/probabilities from.",
+    )
     return parser.parse_args()
 
 
@@ -50,8 +58,9 @@ def main():
     setup_environment(args.seed)
     ensure_output_dirs(user_id=args.user_id)
     w, _, _ = load_fsrs_weights(args.benchmark_result, args.user_id)
+    button_usage = load_button_usage_config(args.button_usage, args.user_id)
     plots_dir = plots_output_dir(args.user_id)
-    r_range, costs = evaluate_dr_thresholds(w, plots_dir)
+    r_range, costs = evaluate_dr_thresholds(w, plots_dir, button_usage=button_usage)
     plot_cost_vs_retention(costs, r_range, plots_dir)
 
 

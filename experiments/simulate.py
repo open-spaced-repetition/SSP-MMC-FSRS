@@ -15,7 +15,9 @@ from ssp_mmc_fsrs.config import (  # noqa: E402
 from ssp_mmc_fsrs.io import load_policy_configs  # noqa: E402
 from experiments.lib import (  # noqa: E402
     DEFAULT_BENCHMARK_RESULT,
+    DEFAULT_BUTTON_USAGE,
     dr_baseline_path_for_user,
+    load_button_usage_config,
     load_fsrs_weights,
     normalize_policy_list,
     policy_configs_path_for_user,
@@ -64,6 +66,12 @@ def parse_args():
         default=DEFAULT_BENCHMARK_RESULT,
         help="FSRS benchmark result JSONL to read user weights from.",
     )
+    parser.add_argument(
+        "--button-usage",
+        type=Path,
+        default=DEFAULT_BUTTON_USAGE,
+        help="Button usage JSONL to read simulation costs/probabilities from.",
+    )
     return parser.parse_args()
 
 
@@ -73,6 +81,7 @@ def main():
     simulation_type = args.simulation_type
     w, _, _ = load_fsrs_weights(args.benchmark_result, args.user_id)
     device = args.device if args.device else default_device()
+    button_usage = load_button_usage_config(args.button_usage, args.user_id)
 
     raw_policies = [
         policy.strip() for policy in args.policies.split(",") if policy.strip()
@@ -99,6 +108,7 @@ def main():
         dr_baseline_path=dr_baseline_path_for_user(args.user_id),
         policies=policies,
         user_id=args.user_id,
+        button_usage=button_usage,
     )
 
 

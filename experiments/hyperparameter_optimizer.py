@@ -19,6 +19,7 @@ for path in (ROOT_DIR, SRC_DIR):
         sys.path.insert(0, str(path))
 
 from ssp_mmc_fsrs.config import (  # noqa: E402
+    DEFAULT_LEARN_COSTS,
     DEFAULT_FIRST_RATING_OFFSETS,
     DEFAULT_FIRST_RATING_PROB,
     DEFAULT_FIRST_SESSION_LENS,
@@ -50,10 +51,13 @@ from ssp_mmc_fsrs.simulation import simulate  # noqa: E402
 from ssp_mmc_fsrs.solver import SSPMMCSolver  # noqa: E402
 from experiments.lib import (  # noqa: E402
     DEFAULT_BENCHMARK_RESULT,
+    DEFAULT_BUTTON_USAGE,
     DelayedKeyboardInterrupt,
     checkpoint_output_dir,
     dr_baseline_path_for_user,
+    load_button_usage_config,
     load_fsrs_weights,
+    normalize_button_usage,
     policy_configs_path_for_user,
 )
 
@@ -67,6 +71,7 @@ first_rating_offsets = DEFAULT_FIRST_RATING_OFFSETS
 first_session_lens = DEFAULT_FIRST_SESSION_LENS
 forget_rating_offset = DEFAULT_FORGET_RATING_OFFSET
 forget_session_len = DEFAULT_FORGET_SESSION_LEN
+learn_costs = DEFAULT_LEARN_COSTS
 
 DEVICE = default_device()
 _DR_BASELINE_CACHE = None
@@ -145,6 +150,12 @@ def parse_args():
         default=DEFAULT_BENCHMARK_RESULT,
         help="FSRS benchmark result JSONL to read user weights from.",
     )
+    parser.add_argument(
+        "--button-usage",
+        type=Path,
+        default=DEFAULT_BUTTON_USAGE,
+        help="Button usage JSONL to read simulation costs/probabilities from.",
+    )
     return parser.parse_args()
 
 
@@ -211,6 +222,35 @@ def _user_ids_label(user_ids):
     return f"multi_users_{label}"
 
 
+def _aggregate_usage(usages, mode):
+    if not usages:
+        return normalize_button_usage(None)
+    if mode == "median":
+        reducer = np.median
+    else:
+        reducer = np.mean
+
+    aggregated = {}
+    array_keys = [
+        "learn_costs",
+        "review_costs",
+        "first_rating_prob",
+        "review_rating_prob",
+        "first_rating_offsets",
+        "first_session_lens",
+    ]
+    scalar_keys = ["forget_rating_offset", "forget_session_len"]
+
+    for key in array_keys:
+        stacked = np.stack([usage[key] for usage in usages])
+        aggregated[key] = reducer(stacked, axis=0)
+
+    for key in scalar_keys:
+        aggregated[key] = float(reducer([usage[key] for usage in usages]))
+
+    return normalize_button_usage(aggregated)
+
+
 def simulate_policy(policy, weights):
     _require_weights()
     (
@@ -228,6 +268,14 @@ def simulate_policy(policy, weights):
         learn_limit_perday=LEARN_LIMIT_PER_DAY,
         review_limit_perday=REVIEW_LIMIT_PER_DAY,
         max_cost_perday=MAX_STUDYING_TIME_PER_DAY,
+        learn_costs=learn_costs,
+        review_costs=review_costs,
+        first_rating_prob=first_rating_prob,
+        review_rating_prob=review_rating_prob,
+        first_rating_offset=first_rating_offsets,
+        first_session_len=first_session_lens,
+        forget_rating_offset=forget_rating_offset,
+        forget_session_len=forget_session_len,
         s_max=S_MAX,
     )
 
@@ -295,13 +343,13 @@ def multi_objective_function(param_dict):
 
     def _evaluate_candidate(weights):
         solver = SSPMMCSolver(
-            review_costs=DEFAULT_REVIEW_COSTS,
-            first_rating_prob=DEFAULT_FIRST_RATING_PROB,
-            review_rating_prob=DEFAULT_REVIEW_RATING_PROB,
-            first_rating_offsets=DEFAULT_FIRST_RATING_OFFSETS,
-            first_session_lens=DEFAULT_FIRST_SESSION_LENS,
-            forget_rating_offset=DEFAULT_FORGET_RATING_OFFSET,
-            forget_session_len=DEFAULT_FORGET_SESSION_LEN,
+            review_costs=review_costs,
+            first_rating_prob=first_rating_prob,
+            review_rating_prob=review_rating_prob,
+            first_rating_offsets=first_rating_offsets,
+            first_session_lens=first_session_lens,
+            forget_rating_offset=forget_rating_offset,
+            forget_session_len=forget_session_len,
             w=weights,
         )
 
@@ -907,6 +955,10 @@ def main():
         POLICY_CONFIGS_PATH_LOCAL, \
         _DR_BASELINE_CACHE
     global AGGREGATE_MODE
+    global review_costs, first_rating_prob, review_rating_prob
+    global first_rating_offsets, first_session_lens
+    global forget_rating_offset, forget_session_len, learn_costs
+
     AGGREGATE_MODE = args.aggregate
 
     user_ids = []
@@ -915,9 +967,15 @@ def main():
     user_ids = sorted(set(user_ids))
 
     if user_ids:
+        W = None
         W_LIST = [
             load_fsrs_weights(args.benchmark_result, user_id)[0] for user_id in user_ids
         ]
+        usage_list = [
+            normalize_button_usage(load_button_usage_config(args.button_usage, user_id))
+            for user_id in user_ids
+        ]
+        usage = _aggregate_usage(usage_list, AGGREGATE_MODE)
         label = _user_ids_label(user_ids)
         checkpoint_dir = CHECKPOINTS_DIR / label
         DR_BASELINE_PATH_LOCAL = checkpoint_dir / "dr_baseline.json"
@@ -925,11 +983,23 @@ def main():
         print(f"Running multi-user optimization for {len(user_ids)} users: {user_ids}")
         print(f"Aggregate mode: {AGGREGATE_MODE}")
     else:
+        W_LIST = None
         W, _, _ = load_fsrs_weights(args.benchmark_result, args.user_id)
+        usage = normalize_button_usage(
+            load_button_usage_config(args.button_usage, args.user_id)
+        )
         DR_BASELINE_PATH_LOCAL = dr_baseline_path_for_user(args.user_id)
         POLICY_CONFIGS_PATH_LOCAL = policy_configs_path_for_user(args.user_id)
         checkpoint_dir = checkpoint_output_dir(args.user_id)
 
+    learn_costs = usage["learn_costs"]
+    review_costs = usage["review_costs"]
+    first_rating_prob = usage["first_rating_prob"]
+    review_rating_prob = usage["review_rating_prob"]
+    first_rating_offsets = usage["first_rating_offsets"]
+    first_session_lens = usage["first_session_lens"]
+    forget_rating_offset = usage["forget_rating_offset"]
+    forget_session_len = usage["forget_session_len"]
     _DR_BASELINE_CACHE = None
     _init_ax(checkpoint_dir)
     if args.dr_baseline_only:
