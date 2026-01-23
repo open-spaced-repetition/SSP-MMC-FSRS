@@ -28,9 +28,11 @@ if str(SRC_DIR) not in sys.path:
 DEFAULT_BENCHMARK_RESULT = (
     ROOT_DIR.parent / "srs-benchmark" / "result" / "FSRS-6-recency.jsonl"
 )
+DEFAULT_BUTTON_USAGE = ROOT_DIR.parent / "Anki-button-usage" / "button_usage.jsonl"
 
 from ssp_mmc_fsrs.config import (  # noqa: E402
     CHECKPOINTS_DIR,
+    DEFAULT_LEARN_COSTS,
     DEFAULT_FIRST_RATING_OFFSETS,
     DEFAULT_FIRST_RATING_PROB,
     DEFAULT_FIRST_SESSION_LENS,
@@ -89,6 +91,111 @@ def _coerce_user_id(value):
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def load_button_usage_config(button_usage_path, user_id):
+    button_usage_path = Path(button_usage_path)
+    target_user_id = _coerce_user_id(user_id)
+    if target_user_id is None:
+        raise ValueError(f"Invalid user id: {user_id}")
+    if not button_usage_path.exists():
+        raise FileNotFoundError(f"Button usage data not found: {button_usage_path}")
+
+    config = None
+    with button_usage_path.open("r") as f:
+        for line_number, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"Invalid JSON on line {line_number} of {button_usage_path}"
+                ) from exc
+
+            entry_user_id = _coerce_user_id(entry.get("user"))
+            if entry_user_id != target_user_id:
+                continue
+
+            def _require_list(key, expected_len=None):
+                value = entry.get(key)
+                if not isinstance(value, list):
+                    raise ValueError(
+                        f"Invalid {key} for user {target_user_id} in "
+                        f"{button_usage_path}"
+                    )
+                if expected_len is not None and len(value) != expected_len:
+                    raise ValueError(
+                        f"Invalid {key} length for user {target_user_id} in "
+                        f"{button_usage_path}: expected {expected_len}, got {len(value)}"
+                    )
+                return np.array(value, dtype=float)
+
+            config = {
+                "learn_costs": _require_list("learn_costs", 4),
+                "review_costs": _require_list("review_costs", 4),
+                "first_rating_prob": _require_list("first_rating_prob", 4),
+                "review_rating_prob": _require_list("review_rating_prob", 3),
+                "first_rating_offsets": _require_list("first_rating_offset", 4),
+                "first_session_lens": _require_list("first_session_len", 4),
+                "forget_rating_offset": float(entry.get("forget_rating_offset")),
+                "forget_session_len": float(entry.get("forget_session_len")),
+            }
+            break
+
+    if config is None:
+        raise ValueError(f"User {target_user_id} not found in {button_usage_path}")
+
+    return config
+
+
+def normalize_button_usage(button_usage):
+    if button_usage is None:
+        source = {}
+    else:
+        source = button_usage
+
+    def _normalize_prob(value, key):
+        if np.any(value < 0):
+            raise ValueError(f"{key} contains negative probabilities: {value}")
+        total = float(np.sum(value))
+        if total <= 0:
+            raise ValueError(f"{key} sums to zero: {value}")
+        if not np.isclose(total, 1.0):
+            logging.warning("%s does not sum to 1 (%.6f); normalizing.", key, total)
+            return value / total
+        return value
+
+    def _array(key, default):
+        value = source.get(key, default)
+        return np.array(value, dtype=float)
+
+    first_rating_prob = _normalize_prob(
+        _array("first_rating_prob", DEFAULT_FIRST_RATING_PROB),
+        "first_rating_prob",
+    )
+    review_rating_prob = _normalize_prob(
+        _array("review_rating_prob", DEFAULT_REVIEW_RATING_PROB),
+        "review_rating_prob",
+    )
+
+    return {
+        "learn_costs": _array("learn_costs", DEFAULT_LEARN_COSTS),
+        "review_costs": _array("review_costs", DEFAULT_REVIEW_COSTS),
+        "first_rating_prob": first_rating_prob,
+        "review_rating_prob": review_rating_prob,
+        "first_rating_offsets": _array(
+            "first_rating_offsets", DEFAULT_FIRST_RATING_OFFSETS
+        ),
+        "first_session_lens": _array("first_session_lens", DEFAULT_FIRST_SESSION_LENS),
+        "forget_rating_offset": float(
+            source.get("forget_rating_offset", DEFAULT_FORGET_RATING_OFFSET)
+        ),
+        "forget_session_len": float(
+            source.get("forget_session_len", DEFAULT_FORGET_SESSION_LEN)
+        ),
+    }
 
 
 def setup_environment(seed):
@@ -226,7 +333,15 @@ def normalize_policy_list(policies):
     return normalized
 
 
-def simulate_policy_factory(w, device, learn_limit_per_day, max_studying_time_per_day):
+def simulate_policy_factory(
+    w,
+    device,
+    learn_limit_per_day,
+    max_studying_time_per_day,
+    button_usage=None,
+):
+    usage = normalize_button_usage(button_usage)
+
     def simulate_policy(policy, label=None):
         (
             review_cnt_per_day,
@@ -243,6 +358,14 @@ def simulate_policy_factory(w, device, learn_limit_per_day, max_studying_time_pe
             learn_limit_perday=learn_limit_per_day,
             review_limit_perday=REVIEW_LIMIT_PER_DAY,
             max_cost_perday=max_studying_time_per_day,
+            learn_costs=usage["learn_costs"],
+            review_costs=usage["review_costs"],
+            first_rating_prob=usage["first_rating_prob"],
+            review_rating_prob=usage["review_rating_prob"],
+            first_rating_offset=usage["first_rating_offsets"],
+            first_session_len=usage["first_session_lens"],
+            forget_rating_offset=usage["forget_rating_offset"],
+            forget_session_len=usage["forget_session_len"],
             s_max=S_MAX,
             progress_desc=label,
         )
@@ -475,18 +598,20 @@ def generate_ssp_mmc_policies(
     user_id,
     weights_source,
     weights_partition,
+    button_usage=None,
 ):
     policy_dir = policy_output_dir(user_id)
     plots_dir = plots_output_dir(user_id)
+    usage = normalize_button_usage(button_usage)
     for policy_config in policy_configs:
         solver = SSPMMCSolver(
-            review_costs=DEFAULT_REVIEW_COSTS,
-            first_rating_prob=DEFAULT_FIRST_RATING_PROB,
-            review_rating_prob=DEFAULT_REVIEW_RATING_PROB,
-            first_rating_offsets=DEFAULT_FIRST_RATING_OFFSETS,
-            first_session_lens=DEFAULT_FIRST_SESSION_LENS,
-            forget_rating_offset=DEFAULT_FORGET_RATING_OFFSET,
-            forget_session_len=DEFAULT_FORGET_SESSION_LEN,
+            review_costs=usage["review_costs"],
+            first_rating_prob=usage["first_rating_prob"],
+            review_rating_prob=usage["review_rating_prob"],
+            first_rating_offsets=usage["first_rating_offsets"],
+            first_session_lens=usage["first_session_lens"],
+            forget_rating_offset=usage["forget_rating_offset"],
+            forget_session_len=usage["forget_session_len"],
             w=w,
         )
 
@@ -496,7 +621,7 @@ def generate_ssp_mmc_policies(
         init_cost = cost_matrix[
             solver.d2i(init_difficulties), solver.s2i(init_stabilities)
         ]
-        avg_cost = init_cost @ DEFAULT_FIRST_RATING_PROB
+        avg_cost = init_cost @ usage["first_rating_prob"]
         print(f"Average cost: {avg_cost:.2f}")
         avg_retention = retention_matrix.mean()
         print(f"Average retention: {avg_retention:.2f}")
@@ -590,21 +715,22 @@ def dr_range():
     return np.arange(R_MIN, R_MAX, 0.01)
 
 
-def evaluate_dr_thresholds(w, plots_dir):
+def evaluate_dr_thresholds(w, plots_dir, button_usage=None):
     costs = []
     r_values = dr_range()
+    usage = normalize_button_usage(button_usage)
 
     for r in r_values:
         print("--------------------------------")
         start = time.time()
         solver = SSPMMCSolver(
-            review_costs=DEFAULT_REVIEW_COSTS,
-            first_rating_prob=DEFAULT_FIRST_RATING_PROB,
-            review_rating_prob=DEFAULT_REVIEW_RATING_PROB,
-            first_rating_offsets=DEFAULT_FIRST_RATING_OFFSETS,
-            first_session_lens=DEFAULT_FIRST_SESSION_LENS,
-            forget_rating_offset=DEFAULT_FORGET_RATING_OFFSET,
-            forget_session_len=DEFAULT_FORGET_SESSION_LEN,
+            review_costs=usage["review_costs"],
+            first_rating_prob=usage["first_rating_prob"],
+            review_rating_prob=usage["review_rating_prob"],
+            first_rating_offsets=usage["first_rating_offsets"],
+            first_session_lens=usage["first_session_lens"],
+            forget_rating_offset=usage["forget_rating_offset"],
+            forget_session_len=usage["forget_session_len"],
             w=w,
         )
         solver._init_state_spaces()
@@ -617,7 +743,7 @@ def evaluate_dr_thresholds(w, plots_dir):
         init_cost = cost_matrix[
             solver.d2i(init_difficulties), solver.s2i(init_stabilities)
         ]
-        avg_cost = init_cost @ DEFAULT_FIRST_RATING_PROB
+        avg_cost = init_cost @ usage["first_rating_prob"]
         avg_retention = r_state_mesh_2d.mean()
         print(f"Desired Retention: {r * 100:.2f}%")
         print(f"True Retention: {avg_retention * 100:.2f}%")
@@ -960,6 +1086,7 @@ def run_experiment(
     dr_baseline_path,
     policies,
     user_id,
+    button_usage=None,
 ):
     ensure_output_dirs(user_id=user_id)
     results_path = simulation_results_path_for_user(user_id)
@@ -973,7 +1100,11 @@ def run_experiment(
         simulation_type
     )
     simulate_policy = simulate_policy_factory(
-        w, device, learn_limit_per_day, max_studying_time_per_day
+        w,
+        device,
+        learn_limit_per_day,
+        max_studying_time_per_day,
+        button_usage=button_usage,
     )
     memrise_policy = make_memrise_policy(w=w)
     anki_sm2_policy = make_anki_sm2_policy(w=w)
