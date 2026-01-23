@@ -290,30 +290,45 @@ def generate_dr_baseline():
     dr_baseline = []
     r_range = np.arange(R_MIN, R_MAX, 0.01)
     for r in r_range:
-        if W_LIST:
-            knowledge_values = []
-            efficiency_values = []
-            for weights in W_LIST:
-                dr_policy = create_dr_policy(r, w=weights)
-                _, cost_per_day, memorized_cnt_per_day = simulate_policy(
-                    dr_policy, weights
-                )
-                accum_cost = np.cumsum(cost_per_day, axis=-1)
-                accum_time_average = accum_cost.mean() / 3600
-                memorized_average = memorized_cnt_per_day.mean()
-                avg_accum_memorized_per_hour = memorized_average / accum_time_average
-                knowledge_values.append(memorized_average)
-                efficiency_values.append(avg_accum_memorized_per_hour)
 
-            memorized_average = _aggregate(knowledge_values, AGGREGATE_MODE)
-            avg_accum_memorized_per_hour = _aggregate(efficiency_values, AGGREGATE_MODE)
-        else:
-            dr_policy = create_dr_policy(r, w=W)
-            _, cost_per_day, memorized_cnt_per_day = simulate_policy(dr_policy, W)
+        def _compute_dr_metrics(weights):
+            dr_policy = create_dr_policy(r, w=weights)
+            _, cost_per_day, memorized_cnt_per_day = simulate_policy(dr_policy, weights)
             accum_cost = np.cumsum(cost_per_day, axis=-1)
             accum_time_average = accum_cost.mean() / 3600
             memorized_average = memorized_cnt_per_day.mean()
-            avg_accum_memorized_per_hour = memorized_average / accum_time_average
+            if accum_time_average <= 0:
+                avg_accum_memorized_per_hour = 0.0
+            else:
+                avg_accum_memorized_per_hour = memorized_average / accum_time_average
+            return memorized_average, accum_time_average, avg_accum_memorized_per_hour
+
+        if W_LIST:
+            knowledge_values = []
+            efficiency_values = []
+            time_values = []
+            for weights in W_LIST:
+                (
+                    memorized_average,
+                    accum_time_average,
+                    avg_accum_memorized_per_hour,
+                ) = _compute_dr_metrics(weights)
+                knowledge_values.append(memorized_average)
+                time_values.append(accum_time_average)
+                efficiency_values.append(avg_accum_memorized_per_hour)
+
+            memorized_average = _aggregate(knowledge_values, AGGREGATE_MODE)
+            accum_time_average = _aggregate(time_values, AGGREGATE_MODE)
+            if accum_time_average <= 0:
+                avg_accum_memorized_per_hour = 0.0
+            else:
+                avg_accum_memorized_per_hour = memorized_average / accum_time_average
+        else:
+            (
+                memorized_average,
+                accum_time_average,
+                avg_accum_memorized_per_hour,
+            ) = _compute_dr_metrics(W)
         dr_baseline.append(
             {
                 "dr": float(r),
