@@ -301,7 +301,16 @@ class SSPMMCSolver:
         )
         transition_probs.append(1.0 - self.r_state_mesh_3d)
 
-        a0, a1, a2, a3, a4, a5, a6, a7, a8 = hyperparams.values()
+        a0 = hyperparams["a0"]
+        a1 = hyperparams["a1"]
+        a2 = hyperparams["a2"]
+        a3 = hyperparams["a3"]
+        a4 = hyperparams["a4"]
+        a5 = hyperparams["a5"]
+        a6 = hyperparams["a6"]
+        a7 = hyperparams["a7"]
+        a8 = hyperparams["a8"]
+        a9 = hyperparams.get("a9", 0.0)
 
         assert isinstance(a0, str)
         assert a0 in ["no_log", "log"]
@@ -337,8 +346,9 @@ class SSPMMCSolver:
             transitions.append(np.stack([self.d2i(next_d), self.s2i(next_s)], axis=-1))
             transition_probs.append(self.r_state_mesh_3d * self.review_rating_prob[i])
 
-            success_cost = review_cost * (
-                a4 + a6 * stability_modifier + a8 * difficulty_modifier
+            success_cost = (
+                review_cost * (a4 + a6 * stability_modifier + a8 * difficulty_modifier)
+                - a9 * self.r_state_mesh_3d
             )
 
             costs.append(zeros + success_cost)

@@ -3,7 +3,6 @@ import json
 import os
 import sys
 import warnings
-import time
 import re
 from pathlib import Path
 
@@ -484,6 +483,14 @@ parameters = [
         "value_type": "float",
         "digits": 2,
     },
+    {
+        "name": "a9",
+        "type": "range",
+        "bounds": [0, 3],
+        "log_scale": False,
+        "value_type": "float",
+        "digits": 2,
+    },
 ]
 
 objectives = {
@@ -498,7 +505,7 @@ def pareto(frontier, calc_knee=False):
     twod_list = []
     for number, dictionary in list(frontier.items()):
         params = dictionary[0]
-        a0, a1, a2, a3, a4, a5, a6, a7, a8 = (
+        a0, a1, a2, a3, a4, a5, a6, a7, a8, a9 = (
             params["a0"],
             params["a1"],
             params["a2"],
@@ -508,6 +515,7 @@ def pareto(frontier, calc_knee=False):
             params["a6"],
             params["a7"],
             params["a8"],
+            params["a9"],
         )
         average_knowledge, average_knowledge_per_hour = (
             dictionary[1][0]["average_knowledge"],
@@ -525,6 +533,7 @@ def pareto(frontier, calc_knee=False):
                 a6,
                 a7,
                 a8,
+                a9,
                 average_knowledge,
                 average_knowledge_per_hour,
             ]
@@ -546,6 +555,7 @@ def pareto(frontier, calc_knee=False):
             a6,
             a7,
             a8,
+            a9,
             average_knowledge,
             average_knowledge_per_hour,
         ) = minilist
@@ -559,6 +569,7 @@ def pareto(frontier, calc_knee=False):
             "a6": a6,
             "a7": a7,
             "a8": a8,
+            "a9": a9,
         }
         print(
             f"    parameters={param_dict}, objectives=({average_knowledge:.0f}, {average_knowledge_per_hour:.1f})"
@@ -624,6 +635,7 @@ def _extract_ssp_mmc_points(frontier):
                     "a6": params["a6"],
                     "a7": params["a7"],
                     "a8": params["a8"],
+                    "a9": params["a9"],
                 },
                 average_knowledge,
                 average_knowledge_per_hour,
@@ -716,7 +728,16 @@ def _propose_new_candidate(twod_list_ssp_mmc, crappy_ssp_mmc_indices):
 
     new_candidate = {}
     for key in all_keys:
-        np.random.seed(int(time.time()))
+        # To prevent new candidates from being the same
+        # Better make it deterministic for reproducibility, so I made this weird thingy
+        seed = (
+            50
+            * twod_list_ssp_mmc[-1][-1]
+            * sum(abs(x) for x in list(better_candidate.values())[1:])
+            * sum(abs(x) for x in list(worse_candidate.values())[1:])
+            / len(twod_list_ssp_mmc)
+        )
+        np.random.seed(int(seed))
         if key == "a0":
             new_candidate.update({"a0": better_candidate.get(key)})
         else:
@@ -740,6 +761,10 @@ def _propose_new_candidate(twod_list_ssp_mmc, crappy_ssp_mmc_indices):
                 if key in ["a1", "a2"]:
                     new_param = max(
                         min(round(better_param * (1 + mutation), 2), 10.0), 0.1
+                    )
+                elif key == "a9":
+                    new_param = max(
+                        min(round(better_param * (1 + mutation), 2), 3.0), 0.0
                     )
                 else:
                     new_param = max(
