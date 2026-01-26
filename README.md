@@ -66,11 +66,15 @@ uv run experiments/simulate.py --seed 123 --device cpu
 uv run experiments/simulate.py --user-id 2
 ```
 
-Run the convergence checks (reads `outputs/checkpoints/user_<id>/policy_configs.json`; defaults assume sibling repos exist, override with flags):
+Run the convergence checks (by default loads per-user configs from
+`outputs/checkpoints/user_<user>/policy_configs.json` and writes results to
+`outputs/checkpoints/convergence_incremental_results.json` /
+`outputs/checkpoints/unconverged_users.json`; pass `--policy-configs` for a shared config):
 
 ```bash
 uv run experiments/converge.py --help
-uv run experiments/converge.py --user-id 1 --button-usage <path> --parameters <path>
+uv run experiments/converge.py --button-usage <path> --parameters <path>
+uv run experiments/converge.py --policy-configs outputs/checkpoints/multi_users_1-10/policy_configs.json --button-usage <path> --parameters <path>
 ```
 
 ## Project layout

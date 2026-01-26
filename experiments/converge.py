@@ -18,8 +18,6 @@ from ssp_mmc_fsrs.solver import SSPMMCSolver  # noqa: E402
 from experiments.lib import (  # noqa: E402
     DelayedKeyboardInterrupt,
     checkpoint_output_dir,
-    convergence_results_path_for_user,
-    unconverged_users_path_for_user,
     policy_configs_path_for_user,
 )
 
@@ -35,26 +33,32 @@ def parse_args():
     parser.add_argument(
         "--parameters",
         type=Path,
-        default=ROOT_DIR.parent / "srs-benchmark" / "result" / "FSRS-rs.jsonl",
+        default=ROOT_DIR.parent / "srs-benchmark" / "result" / "FSRS-6-recency.jsonl",
         help="Path to FSRS parameters JSONL file.",
     )
     parser.add_argument(
         "--results",
         type=Path,
         default=None,
-        help="Path to incremental results JSON file.",
+        help=(
+            "Path to incremental results JSON file "
+            "(defaults to outputs/checkpoints/convergence_incremental_results.json)."
+        ),
     )
     parser.add_argument(
         "--unconverged",
         type=Path,
         default=None,
-        help="Path to unconverged users JSON file.",
+        help=(
+            "Path to unconverged users JSON file "
+            "(defaults to outputs/checkpoints/unconverged_users.json)."
+        ),
     )
     parser.add_argument(
-        "--user-id",
-        type=int,
-        default=1,
-        help="User ID for selecting SSP-MMC hyperparameter configs.",
+        "--policy-configs",
+        type=Path,
+        default=None,
+        help=("Override policy configs JSON path (use a shared config for all users)."),
     )
     parser.add_argument("--workers", type=int, default=2, help="Process pool size.")
     return parser.parse_args()
@@ -84,7 +88,9 @@ def save_results(processed_users, unconverged_users, filename: Path):
             json.dump(data, f, indent=2)
 
 
-def test_user(user_id, simulator_configs, parameters, policy_configs):
+def test_user(
+    user_id, simulator_configs, parameters, policy_configs, policy_configs_path
+):
     review_costs = np.array(simulator_configs[user_id]["review_costs"])
     first_rating_prob = np.array(simulator_configs[user_id]["first_rating_prob"])
     review_rating_prob = np.array(simulator_configs[user_id]["review_rating_prob"])
@@ -93,6 +99,11 @@ def test_user(user_id, simulator_configs, parameters, policy_configs):
     forget_rating_offset = simulator_configs[user_id]["forget_rating_offset"]
     forget_session_len = simulator_configs[user_id]["forget_session_len"]
     w = parameters[user_id]["parameters"]["0"]
+
+    if policy_configs is None:
+        if policy_configs_path is None:
+            raise ValueError("policy_configs or policy_configs_path is required.")
+        policy_configs = load_policy_configs(policy_configs_path)
 
     for entry in policy_configs:
         solver = SSPMMCSolver(
@@ -119,11 +130,12 @@ def test_user(user_id, simulator_configs, parameters, policy_configs):
 
 def main():
     args = parse_args()
-    checkpoint_output_dir(args.user_id).mkdir(parents=True, exist_ok=True)
+    output_dir = checkpoint_output_dir(None)
+    output_dir.mkdir(parents=True, exist_ok=True)
     if args.results is None:
-        args.results = convergence_results_path_for_user(args.user_id)
+        args.results = output_dir / "convergence_incremental_results.json"
     if args.unconverged is None:
-        args.unconverged = unconverged_users_path_for_user(args.user_id)
+        args.unconverged = output_dir / "unconverged_users.json"
 
     simulator_configs = load_jsonl(args.button_usage)
     simulator_configs = {config["user"]: config for config in simulator_configs}
@@ -148,19 +160,46 @@ def main():
 
     print(f"Processing {len(remaining_users)} remaining users")
 
-    try:
-        policy_configs_path = policy_configs_path_for_user(args.user_id)
-        policy_configs = load_policy_configs(policy_configs_path)
-    except FileNotFoundError as exc:
-        raise SystemExit(
-            f"Missing policy configs at {policy_configs_path}. "
-            f"Run experiments/hyperparameter_optimizer.py --user-id {args.user_id} first."
-        ) from exc
+    policy_configs = None
+    policy_configs_path = None
+    if args.policy_configs is not None:
+        policy_configs_path = args.policy_configs
+        try:
+            policy_configs = load_policy_configs(policy_configs_path)
+        except FileNotFoundError as exc:
+            raise SystemExit(
+                f"Missing policy configs at {policy_configs_path}. "
+                "Run experiments/hyperparameter_optimizer.py or pass --policy-configs."
+            ) from exc
+    else:
+        missing_users = [
+            user_id
+            for user_id in remaining_users
+            if not policy_configs_path_for_user(user_id).exists()
+        ]
+        if missing_users:
+            sample = ", ".join(str(user_id) for user_id in missing_users[:10])
+            extra = ""
+            if len(missing_users) > 10:
+                extra = f", ... (+{len(missing_users) - 10} more)"
+            raise SystemExit(
+                "Missing per-user policy configs for user IDs: "
+                f"{sample}{extra}. "
+                "Run experiments/hyperparameter_optimizer.py --user-id <id> "
+                "for those users, or pass --policy-configs to use a shared config."
+            )
 
     with ProcessPoolExecutor(max_workers=args.workers) as executor:
         future_to_user = {
             executor.submit(
-                test_user, user_id, simulator_configs, parameters, policy_configs
+                test_user,
+                user_id,
+                simulator_configs,
+                parameters,
+                policy_configs,
+                policy_configs_path_for_user(user_id)
+                if policy_configs is None
+                else None,
             ): user_id
             for user_id in remaining_users
         }
