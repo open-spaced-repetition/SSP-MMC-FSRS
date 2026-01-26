@@ -74,15 +74,23 @@ def load_existing_results(filename: Path):
         with DelayedKeyboardInterrupt():
             with open(filename, "r") as f:
                 data = json.load(f)
-                return data.get("processed_users", {}), data.get(
-                    "unconverged_users", []
-                )
+                processed_users = data.get("processed_users", {})
+                # JSON object keys are strings; normalize to int for set math.
+                processed_users = {int(k): v for k, v in processed_users.items()}
+                unconverged_users = data.get("unconverged_users", [])
+                return processed_users, unconverged_users
     except FileNotFoundError:
         return {}, []
 
 
 def save_results(processed_users, unconverged_users, filename: Path):
-    data = {"processed_users": processed_users, "unconverged_users": unconverged_users}
+    # Write users in sorted order for stable incremental results.
+    processed_sorted = {str(k): processed_users[k] for k in sorted(processed_users)}
+    unconverged_sorted = sorted(unconverged_users)
+    data = {
+        "processed_users": processed_sorted,
+        "unconverged_users": unconverged_sorted,
+    }
     with DelayedKeyboardInterrupt():
         with open(filename, "w") as f:
             json.dump(data, f, indent=2)
