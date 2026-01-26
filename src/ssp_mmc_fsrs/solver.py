@@ -100,8 +100,11 @@ class SSPMMCSolver:
 
         self._init_state_spaces()
 
+    def _clamp_s(self, s):
+        return np.clip(s, self.s_min, self.s_max)
+
     def stability_after_success(self, s, d, r, g):
-        return s * (
+        updated = s * (
             1
             + np.exp(self.w[8])
             * (11 - d)
@@ -110,26 +113,25 @@ class SSPMMCSolver:
             * (self.w[15] if g == 2 else 1)
             * (self.w[16] if g == 4 else 1)
         )
+        return self._clamp_s(updated)
 
     def stability_after_failure(self, s, d, r):
-        return np.maximum(
-            self.s_min,
-            np.minimum(
-                self.w[11]
-                * np.power(d, -self.w[12])
-                * (np.power(s + 1, self.w[13]) - 1)
-                * np.exp((1 - r) * self.w[14]),
-                s / np.exp(self.w[17] * self.w[18]),
-            ),
+        updated = np.minimum(
+            self.w[11]
+            * np.power(d, -self.w[12])
+            * (np.power(s + 1, self.w[13]) - 1)
+            * np.exp((1 - r) * self.w[14]),
+            s / np.exp(self.w[17] * self.w[18]),
         )
+        return self._clamp_s(updated)
 
     def stability_short_term(self, s):
         rating = 3
         sinc = np.exp(self.w[17] * (rating - 3 + self.w[18])) * np.power(s, -self.w[19])
-        return s * sinc
+        return self._clamp_s(s * sinc)
 
     def init_s(self, rating):
-        return np.choose(
+        updated = np.choose(
             rating - 1,
             np.array(self.w[0:4])
             * np.exp(
@@ -137,6 +139,7 @@ class SSPMMCSolver:
                 * (self.first_rating_offsets + self.first_session_lens * self.w[18])
             ),
         )
+        return self._clamp_s(updated)
 
     def init_d(self, rating):
         return self.w[4] - np.exp(self.w[5] * (rating - 1)) + 1

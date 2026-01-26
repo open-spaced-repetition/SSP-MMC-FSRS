@@ -180,21 +180,23 @@ def normalize_button_usage(button_usage):
         "review_rating_prob",
     )
 
+    first_rating_offsets = np.zeros_like(
+        _array("first_rating_offsets", DEFAULT_FIRST_RATING_OFFSETS)
+    )
+    first_session_lens = np.zeros_like(
+        _array("first_session_lens", DEFAULT_FIRST_SESSION_LENS)
+    )
+
     return {
         "learn_costs": _array("learn_costs", DEFAULT_LEARN_COSTS),
         "review_costs": _array("review_costs", DEFAULT_REVIEW_COSTS),
         "first_rating_prob": first_rating_prob,
         "review_rating_prob": review_rating_prob,
-        "first_rating_offsets": _array(
-            "first_rating_offsets", DEFAULT_FIRST_RATING_OFFSETS
-        ),
-        "first_session_lens": _array("first_session_lens", DEFAULT_FIRST_SESSION_LENS),
-        "forget_rating_offset": float(
-            source.get("forget_rating_offset", DEFAULT_FORGET_RATING_OFFSET)
-        ),
-        "forget_session_len": float(
-            source.get("forget_session_len", DEFAULT_FORGET_SESSION_LEN)
-        ),
+        # Offsets are disabled to align with srs-simulator defaults.
+        "first_rating_offsets": first_rating_offsets,
+        "first_session_lens": first_session_lens,
+        "forget_rating_offset": 0.0,
+        "forget_session_len": 0.0,
     }
 
 

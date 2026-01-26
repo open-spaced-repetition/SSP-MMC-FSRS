@@ -14,6 +14,7 @@ from .config import (
     DEFAULT_FIRST_SESSION_LENS,
     DEFAULT_FORGET_RATING_OFFSET,
     DEFAULT_FORGET_SESSION_LEN,
+    S_MIN,
 )
 from .core import power_forgetting_curve_torch
 
@@ -102,39 +103,37 @@ def simulate(
     w_4_tensor = torch.tensor(w[:4], device=device)
     first_rating_offset_tensor = torch.tensor(first_rating_offset, device=device)
 
+    def clamp_stability(value):
+        return torch.clamp(value, min=S_MIN, max=s_max)
+
     def stability_after_success(s, r, d, rating):
         hard_penalty = torch.where(rating == 2, w[15], 1)
         easy_bonus = torch.where(rating == 4, w[16], 1)
-        return torch.maximum(
-            torch.tensor(0.01, device=s.device),
-            s
-            * (
-                1
-                + np.exp(w[8])
-                * (11 - d)
-                * torch.pow(s, -w[9])
-                * (torch.exp((1 - r) * w[10]) - 1)
-                * hard_penalty
-                * easy_bonus
-            ),
+        updated = s * (
+            1
+            + np.exp(w[8])
+            * (11 - d)
+            * torch.pow(s, -w[9])
+            * (torch.exp((1 - r) * w[10]) - 1)
+            * hard_penalty
+            * easy_bonus
         )
+        return clamp_stability(updated)
 
     def stability_after_failure(s, r, d):
-        return torch.maximum(
-            torch.tensor(0.01, device=s.device),
-            torch.minimum(
-                w[11]
-                * torch.pow(d, -w[12])
-                * (torch.pow(s + 1, w[13]) - 1)
-                * torch.exp((1 - r) * w[14]),
-                s / np.exp(w[17] * w[18]),
-            ),
+        updated = torch.minimum(
+            w[11]
+            * torch.pow(d, -w[12])
+            * (torch.pow(s + 1, w[13]) - 1)
+            * torch.exp((1 - r) * w[14]),
+            s / np.exp(w[17] * w[18]),
         )
+        return clamp_stability(updated)
 
     def stability_short_term(s):
         rating = 3
         new_s = s * np.exp(w[17] * (rating - 3 + w[18])) * torch.pow(s, -w[19])
-        return new_s
+        return clamp_stability(new_s)
 
     def init_d(rating):
         return w[4] - torch.exp(w[5] * (rating - 1)) + 1
@@ -211,6 +210,10 @@ def simulate(
         last_date = torch.where(true_learn, today, last_date)
         stability = torch.where(true_learn, w_4_tensor[rating - 1], stability)
         difficulty = torch.where(true_learn, init_d_with_short_term(rating), difficulty)
+        if (true_review | true_learn).any():
+            stability = torch.where(
+                true_review | true_learn, clamp_stability(stability), stability
+            )
 
         prev_interval = ivl.clone()
 
