@@ -20,9 +20,12 @@ from experiments.lib import (  # noqa: E402
     load_button_usage_config,
     load_fsrs_weights,
     normalize_policy_list,
+    plot_pareto_frontier,
     policy_configs_path_for_user,
+    plots_output_dir,
     run_experiment,
     setup_environment,
+    simulation_results_path_for_user,
 )
 
 
@@ -81,12 +84,41 @@ def parse_args():
         default=DEFAULT_BUTTON_USAGE,
         help="Button usage JSONL to read simulation costs/probabilities from.",
     )
+    parser.add_argument(
+        "--plot-only",
+        action="store_true",
+        help="Skip simulation and only plot Pareto frontier from saved results.",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     setup_environment(args.seed)
+    if args.plot_only:
+        results_path = simulation_results_path_for_user(args.user_id)
+        if not results_path.exists():
+            raise SystemExit(
+                f"Simulation results not found at {results_path}. "
+                "Run experiments/simulate.py first."
+            )
+        policy_configs_path = (
+            args.policy_configs
+            if args.policy_configs is not None
+            else policy_configs_path_for_user(args.user_id)
+        )
+        try:
+            policy_configs = load_policy_configs(policy_configs_path)
+        except FileNotFoundError:
+            policy_configs = []
+        plots_dir = plots_output_dir(args.user_id)
+        plot_pareto_frontier(
+            results_path,
+            policy_configs,
+            plots_dir,
+            user_id=args.user_id,
+        )
+        return
     simulation_type = args.simulation_type
     w, _, _ = load_fsrs_weights(args.benchmark_result, args.user_id)
     device = args.device if args.device else default_device()
