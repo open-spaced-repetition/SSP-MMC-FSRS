@@ -381,11 +381,16 @@ def compute_simulation_metrics(review_cnt_per_day, cost_per_day, memorized_cnt_p
     accum_cost = np.cumsum(cost_per_day, axis=-1)
     accum_time_average = accum_cost.mean() / 3600
     memorized_average = memorized_cnt_per_day.mean()
+    if time_average <= 0:
+        memorized_per_minute = 0.0
+    else:
+        memorized_per_minute = memorized_average / time_average
     avg_accum_memorized_per_hour = memorized_average / accum_time_average
 
     assert not isinstance(reviews_average, np.ndarray), f"{reviews_average}"
     assert not isinstance(time_average, np.ndarray), f"{time_average}"
     assert not isinstance(memorized_average, np.ndarray), f"{memorized_average}"
+    assert not isinstance(memorized_per_minute, np.ndarray), f"{memorized_per_minute}"
     assert not isinstance(avg_accum_memorized_per_hour, np.ndarray), (
         f"{avg_accum_memorized_per_hour}"
     )
@@ -395,6 +400,7 @@ def compute_simulation_metrics(review_cnt_per_day, cost_per_day, memorized_cnt_p
         time_average,
         memorized_average,
         avg_accum_memorized_per_hour,
+        memorized_per_minute,
     )
 
 
@@ -423,6 +429,7 @@ def plot_simulation(policy, title, results_path, simulate_policy, simulation_dir
             "time_average": float(metrics[1]),
             "memorized_average": float(metrics[2]),
             "avg_accum_memorized_per_hour": float(metrics[3]),
+            "memorized_per_minute": float(metrics[4]),
         },
         results_path,
     )
@@ -814,7 +821,13 @@ def save_dr_baseline_from_results(results_path, path):
     for entry in simulation_results:
         title = entry["title"]
         memorized_average = entry["memorized_average"]
-        avg_accum_memorized_per_hour = entry["avg_accum_memorized_per_hour"]
+        memorized_per_minute = entry.get("memorized_per_minute")
+        if memorized_per_minute is None:
+            time_average = entry.get("time_average", 0.0)
+            if time_average:
+                memorized_per_minute = memorized_average / time_average
+            else:
+                memorized_per_minute = 0.0
         if title.startswith("DR="):
             try:
                 dr_value = float(title.split("=")[1])
@@ -824,7 +837,7 @@ def save_dr_baseline_from_results(results_path, path):
                 {
                     "dr": dr_value,
                     "average_knowledge": float(memorized_average),
-                    "average_knowledge_per_hour": float(avg_accum_memorized_per_hour),
+                    "memorized_per_minute": float(memorized_per_minute),
                 }
             )
     dr_baseline.sort(key=lambda entry: entry["dr"])

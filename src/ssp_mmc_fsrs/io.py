@@ -308,10 +308,17 @@ def load_dr_baseline(path=DR_BASELINE_PATH):
     for entry in dr_baseline:
         if not isinstance(entry, dict):
             raise ValueError(f"Invalid DR baseline entry in {path}: {entry}")
-        missing = {"dr", "average_knowledge", "average_knowledge_per_hour"} - set(
-            entry.keys()
-        )
+        required = {"dr", "average_knowledge", "memorized_per_minute"}
+        missing = required - set(entry.keys())
         if missing:
+            if (
+                "memorized_per_minute" in missing
+                and "average_knowledge_per_hour" in entry
+            ):
+                raise ValueError(
+                    "Legacy DR baseline entry missing memorized_per_minute. "
+                    "Regenerate dr_baseline.json."
+                )
             raise ValueError(f"Missing {missing} in DR baseline entry: {entry}")
     return dr_baseline
 

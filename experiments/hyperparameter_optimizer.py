@@ -294,46 +294,43 @@ def generate_dr_baseline():
         def _compute_dr_metrics(weights):
             dr_policy = create_dr_policy(r, w=weights)
             _, cost_per_day, memorized_cnt_per_day = simulate_policy(dr_policy, weights)
-            accum_cost = np.cumsum(cost_per_day, axis=-1)
-            accum_time_average = accum_cost.mean() / 3600
+            time_average = cost_per_day.mean() / 60
             memorized_average = memorized_cnt_per_day.mean()
-            if accum_time_average <= 0:
-                avg_accum_memorized_per_hour = 0.0
+            if time_average <= 0:
+                memorized_per_minute = 0.0
             else:
-                avg_accum_memorized_per_hour = memorized_average / accum_time_average
-            return memorized_average, accum_time_average, avg_accum_memorized_per_hour
+                memorized_per_minute = memorized_average / time_average
+            return memorized_average, time_average, memorized_per_minute
 
         if W_LIST:
             knowledge_values = []
-            efficiency_values = []
             time_values = []
             for weights in W_LIST:
                 (
                     memorized_average,
-                    accum_time_average,
-                    avg_accum_memorized_per_hour,
+                    time_average,
+                    memorized_per_minute,
                 ) = _compute_dr_metrics(weights)
                 knowledge_values.append(memorized_average)
-                time_values.append(accum_time_average)
-                efficiency_values.append(avg_accum_memorized_per_hour)
+                time_values.append(time_average)
 
             memorized_average = _aggregate(knowledge_values, AGGREGATE_MODE)
-            accum_time_average = _aggregate(time_values, AGGREGATE_MODE)
-            if accum_time_average <= 0:
-                avg_accum_memorized_per_hour = 0.0
+            time_average = _aggregate(time_values, AGGREGATE_MODE)
+            if time_average <= 0:
+                memorized_per_minute = 0.0
             else:
-                avg_accum_memorized_per_hour = memorized_average / accum_time_average
+                memorized_per_minute = memorized_average / time_average
         else:
             (
                 memorized_average,
-                accum_time_average,
-                avg_accum_memorized_per_hour,
+                time_average,
+                memorized_per_minute,
             ) = _compute_dr_metrics(W)
         dr_baseline.append(
             {
                 "dr": float(r),
                 "average_knowledge": float(memorized_average),
-                "average_knowledge_per_hour": float(avg_accum_memorized_per_hour),
+                "memorized_per_minute": float(memorized_per_minute),
             }
         )
     save_dr_baseline(dr_baseline, DR_BASELINE_PATH_LOCAL)
@@ -350,7 +347,7 @@ def get_dr_baseline(force=False):
     else:
         try:
             dr_baseline = load_dr_baseline(DR_BASELINE_PATH_LOCAL)
-        except FileNotFoundError:
+        except (FileNotFoundError, ValueError):
             dr_baseline = generate_dr_baseline()
     _DR_BASELINE_CACHE = dr_baseline
     return dr_baseline
@@ -391,45 +388,43 @@ def multi_objective_function(param_dict):
             ssp_mmc_policy, weights
         )
 
-        accum_cost = np.cumsum(cost_per_day, axis=-1)
-        accum_time_average = accum_cost.mean() / 3600
+        time_average = cost_per_day.mean() / 60
         memorized_average = memorized_cnt_per_day.mean()
-        avg_accum_memorized_per_hour = memorized_average / accum_time_average
-        return memorized_average, avg_accum_memorized_per_hour
+        if time_average <= 0:
+            memorized_per_minute = 0.0
+        else:
+            memorized_per_minute = memorized_average / time_average
+        return memorized_average, memorized_per_minute
 
     if W_LIST:
         knowledge_values = []
         efficiency_values = []
         for weights in W_LIST:
-            memorized_average, avg_accum_memorized_per_hour = _evaluate_candidate(
-                weights
-            )
+            memorized_average, memorized_per_minute = _evaluate_candidate(weights)
             knowledge_values.append(memorized_average)
-            efficiency_values.append(avg_accum_memorized_per_hour)
+            efficiency_values.append(memorized_per_minute)
 
         memorized_average = _aggregate(knowledge_values, AGGREGATE_MODE)
-        avg_accum_memorized_per_hour = _aggregate(efficiency_values, AGGREGATE_MODE)
+        memorized_per_minute = _aggregate(efficiency_values, AGGREGATE_MODE)
         print("")
         print(param_dict)
         print(
             f"Aggregated ({AGGREGATE_MODE}) memorized={memorized_average:.0f} cards "
             f"across {len(W_LIST)} users"
         )
-        print(
-            f"Aggregated memorized/hours={avg_accum_memorized_per_hour:.1f} cards/hour"
-        )
+        print(f"Aggregated memorized/min={memorized_per_minute:.2f} cards/min")
         print("")
     else:
-        memorized_average, avg_accum_memorized_per_hour = _evaluate_candidate(W)
+        memorized_average, memorized_per_minute = _evaluate_candidate(W)
         print("")
         print(param_dict)
         print(f"Average memorized={memorized_average:.0f} cards")
-        print(f"Average memorized/hours={avg_accum_memorized_per_hour:.1f} cards/hour")
+        print(f"Average memorized/min={memorized_per_minute:.2f} cards/min")
         print("")
 
     return {
         "average_knowledge": (memorized_average, None),
-        "average_knowledge_per_hour": (avg_accum_memorized_per_hour, None),
+        "memorized_per_minute": (memorized_per_minute, None),
     }
 
 
@@ -514,7 +509,7 @@ parameters = [
 
 objectives = {
     "average_knowledge": ObjectiveProperties(minimize=False),
-    "average_knowledge_per_hour": ObjectiveProperties(minimize=False),
+    "memorized_per_minute": ObjectiveProperties(minimize=False),
 }
 
 
@@ -536,9 +531,9 @@ def pareto(frontier, calc_knee=False):
             params["a8"],
             params["a9"],
         )
-        average_knowledge, average_knowledge_per_hour = (
+        average_knowledge, memorized_per_minute = (
             dictionary[1][0]["average_knowledge"],
-            dictionary[1][0]["average_knowledge_per_hour"],
+            dictionary[1][0]["memorized_per_minute"],
         )
 
         twod_list.append(
@@ -554,7 +549,7 @@ def pareto(frontier, calc_knee=False):
                 a8,
                 a9,
                 average_knowledge,
-                average_knowledge_per_hour,
+                memorized_per_minute,
             ]
         )
 
@@ -576,7 +571,7 @@ def pareto(frontier, calc_knee=False):
             a8,
             a9,
             average_knowledge,
-            average_knowledge_per_hour,
+            memorized_per_minute,
         ) = minilist
         param_dict = {
             "a0": a0,
@@ -591,12 +586,12 @@ def pareto(frontier, calc_knee=False):
             "a9": a9,
         }
         print(
-            f"    parameters={param_dict}, objectives=({average_knowledge:.0f}, {average_knowledge_per_hour:.1f})"
+            f"    parameters={param_dict}, objectives=({average_knowledge:.0f}, {memorized_per_minute:.2f})"
         )
 
         if calc_knee:
             x.append(average_knowledge)
-            y.append(average_knowledge_per_hour)
+            y.append(memorized_per_minute)
             hyperparams.append(param_dict)
 
     if len(x) > 2 and calc_knee:
@@ -628,7 +623,7 @@ def _dr_baseline_points():
         [
             entry["dr"],
             entry["average_knowledge"],
-            entry["average_knowledge_per_hour"],
+            entry["memorized_per_minute"],
         ]
         for entry in dr_baseline
     ]
@@ -638,9 +633,9 @@ def _extract_ssp_mmc_points(frontier):
     twod_list_ssp_mmc = []
     for _, dictionary in list(frontier.items()):
         params = dictionary[0]
-        average_knowledge, average_knowledge_per_hour = (
+        average_knowledge, memorized_per_minute = (
             dictionary[1][0]["average_knowledge"],
-            dictionary[1][0]["average_knowledge_per_hour"],
+            dictionary[1][0]["memorized_per_minute"],
         )
         twod_list_ssp_mmc.append(
             [
@@ -657,7 +652,7 @@ def _extract_ssp_mmc_points(frontier):
                     "a9": params["a9"],
                 },
                 average_knowledge,
-                average_knowledge_per_hour,
+                memorized_per_minute,
             ]
         )
     return sorted(twod_list_ssp_mmc, key=lambda x: x[1])
@@ -804,7 +799,7 @@ def _frontier_points(frontier):
         points.append(
             (
                 float(metrics["average_knowledge"]),
-                float(metrics["average_knowledge_per_hour"]),
+                float(metrics["memorized_per_minute"]),
             )
         )
     return points
