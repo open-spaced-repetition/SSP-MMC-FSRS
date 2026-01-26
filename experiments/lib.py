@@ -845,6 +845,17 @@ def save_dr_baseline_from_results(results_path, path):
     print(f"Saved DR baseline to {path}")
 
 
+def _memorized_per_minute(entry):
+    memorized_per_minute = entry.get("memorized_per_minute")
+    if memorized_per_minute is not None:
+        return memorized_per_minute
+    time_average = entry.get("time_average", 0.0)
+    memorized_average = entry.get("memorized_average", 0.0)
+    if time_average:
+        return memorized_average / time_average
+    return 0.0
+
+
 def _categorize_plot_data(simulation_results):
     categorized = {
         "ssp_mmc": {"titles": [], "x": [], "y": []},
@@ -855,7 +866,7 @@ def _categorize_plot_data(simulation_results):
     for entry in simulation_results:
         title = entry["title"]
         memorized_average = entry["memorized_average"]
-        avg_accum_memorized_per_hour = entry["avg_accum_memorized_per_hour"]
+        memorized_per_minute = _memorized_per_minute(entry)
 
         if "SSP-MMC" in title:
             bucket = categorized["ssp_mmc"]
@@ -868,7 +879,7 @@ def _categorize_plot_data(simulation_results):
 
         bucket["titles"].append(title)
         bucket["x"].append(memorized_average)
-        bucket["y"].append(avg_accum_memorized_per_hour)
+        bucket["y"].append(memorized_per_minute)
 
     return categorized
 
@@ -989,10 +1000,7 @@ def plot_pareto_frontier(results_path, policy_configs, plots_dir, user_id=None):
         (max([entry["memorized_average"] for entry in simulation_results]) / 200)
     )
     y_min = 0
-    y_max = (
-        max([entry["avg_accum_memorized_per_hour"] for entry in simulation_results])
-        * 1.03
-    )
+    y_max = max(_memorized_per_minute(entry) for entry in simulation_results) * 1.03
 
     plt.xlim([x_min, x_max])
     plt.ylim([y_min, y_max])
@@ -1057,7 +1065,7 @@ def plot_pareto_frontier(results_path, policy_configs, plots_dir, user_id=None):
 
     plt.xlabel("Memorized cards (average, all days)\n(higher=better)", fontsize=18)
     plt.ylabel(
-        "Memorized/hours spent (average, all days)\n(higher=better)", fontsize=18
+        "Memorized cards (average)/minutes per day\n(higher=better)", fontsize=18
     )
     plt.xticks(fontsize=16, color="black")
     plt.yticks(fontsize=16, color="black")
