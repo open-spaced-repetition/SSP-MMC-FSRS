@@ -106,7 +106,7 @@ def make_anki_sm2_policy(w=None, s_max=S_MAX):
 
         final_interval = s_max_aware_fixed_interval(
             stability, difficulty, result_interval, decay, w, s_max
-        )
+        ).round()
 
         return final_interval, new_ease
 
