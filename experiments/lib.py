@@ -555,6 +555,39 @@ def _load_policy_index(policy_dir, user_id=None):
     return index
 
 
+def _clear_policy_dir(policy_dir):
+    policy_dir = Path(policy_dir)
+    if not policy_dir.exists():
+        return
+
+    for meta_path in policy_dir.glob("*.json"):
+        policy_file = None
+        try:
+            with meta_path.open("r") as f:
+                meta = json.load(f)
+            policy_file = meta.get("policy_file")
+        except (OSError, json.JSONDecodeError):
+            policy_file = None
+
+        try:
+            meta_path.unlink()
+        except FileNotFoundError:
+            pass
+
+        if policy_file:
+            npz_path = policy_dir / policy_file
+            try:
+                npz_path.unlink()
+            except FileNotFoundError:
+                pass
+
+    for npz_path in policy_dir.glob("*.npz"):
+        try:
+            npz_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def run_ssp_mmc_configs(
     policy_configs, results_path, simulate_policy, device, user_id, simulation_dir
 ):
@@ -612,6 +645,7 @@ def generate_ssp_mmc_policies(
     policy_dir = policy_output_dir(user_id)
     plots_dir = plots_output_dir(user_id)
     usage = normalize_button_usage(button_usage)
+    _clear_policy_dir(policy_dir)
     for policy_config in policy_configs:
         solver = SSPMMCSolver(
             review_costs=usage["review_costs"],
