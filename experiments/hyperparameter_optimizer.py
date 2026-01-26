@@ -751,7 +751,8 @@ def _propose_new_candidate(twod_list_ssp_mmc, crappy_ssp_mmc_indices):
             * sum(abs(x) for x in list(worse_candidate.values())[1:])
             / len(twod_list_ssp_mmc)
         )
-        np.random.seed(int(seed))
+        seed_value = int(abs(seed)) % (2**32)
+        np.random.seed(seed_value)
         if key == "a0":
             new_candidate.update({"a0": better_candidate.get(key)})
         else:
