@@ -1101,7 +1101,7 @@ def plot_pareto_frontier(results_path, policy_configs, plots_dir, user_id=None):
 
     plt.xlabel("Memorized cards (average, all days)\n(higher=better)", fontsize=18)
     plt.ylabel(
-        "Memorized cards (average)/minutes per day\n(higher=better)", fontsize=18
+        "Memorized cards (average)/Minutes of studying per day\n(higher=better)", fontsize=18
     )
     plt.xticks(fontsize=16, color="black")
     plt.yticks(fontsize=16, color="black")
@@ -1223,7 +1223,7 @@ def run_experiment(
 
     print(
         "| Scheduling Policy | Reviews per day (average, lower=better) | "
-        "Minutes per day (average, lower=better) | "
+        "Minutes of studying per day (average, lower=better) | "
         "Memorized cards (average, all days, higher=better) | "
         "Memorized/hours spent (average, all days, higher=better) |"
     )

@@ -101,7 +101,7 @@ The probability that a card is recalled successfully is estimated by FSRS.
 ## Results
 
 - Reviews per day (average): the average number of simulated reviews of flashcards per one day of the simulated review history. Lower is better.
-- Minutes per day (average): same as above, but minutes of studying are used instead. Lower is better.
+- Minutes of studying per day (average): same as above, but minutes of studying are used instead. Lower is better.
 - Memorized cards (average, all days): first, for each day, the number of cards memorized by that day is calculated as the sum of probabilities of recall of all cards on that day. Then, an average across all days is taken. This number cannot be greater than the deck size. Example: if you knew 10 cards by day 1, 15 cards by day 2, and 20 cards by day 3, the average is 15. Higher is better.
 - Memorized/hours spent (average, all days): the value above divided by the average accumulated time spent on reviews. It's the ratio of average accumulated knowledge to average accumulated studying time. Think of it like this: "On average, by the time you have memorized X cards, you have spent Y hours on reviews, so the ratio is X/Y". Higher is better.
 
@@ -113,7 +113,7 @@ The best result is highlighted in **bold**. Arrows indicate whether lower (↓) 
 
 ### Duration of the simulation = 1825 days (5 years)
 
-| Scheduling Policy | Reviews per day (average)↓ | Minutes per day (average)↓ | Memorized cards (average, all days)↑ | Memorized/hours spent (average, all days)↑ |
+| Scheduling Policy | Reviews per day (average)↓ | Minutes of studying per day (average)↓ | Memorized cards (average, all days)↑ | Memorized/hours spent (average, all days)↑ |
 | --- | --- | --- | --- | --- |
 | SSP-MMC-FSRS (Maximum knowledge, 2f9942e9) | 692.1 | 96.7 | **7217** | 4.6 |
 | SSP-MMC-FSRS (e97e72a7) | 390.1 | 56.2 | 7169 | 8.2 |
