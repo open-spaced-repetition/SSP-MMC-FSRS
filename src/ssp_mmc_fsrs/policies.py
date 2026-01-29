@@ -42,6 +42,100 @@ def s_max_aware_fixed_interval(s, d, fixed_interval, decay, w, s_max):
     return torch.where(s > s_max, 1e9, torch.minimum(int_base, int_req))
 
 
+def _round_half_up_torch(value):
+    return torch.floor(value + 0.5)
+
+
+def _constrain_passing_interval_tensor(interval, minimum):
+    rounded = _round_half_up_torch(interval)
+    return torch.maximum(rounded, minimum).clamp(min=1.0)
+
+
+def _anki_sm2_next_interval(
+    prev_interval,
+    elapsed,
+    grade,
+    ease,
+    *,
+    graduating_interval,
+    easy_interval,
+    easy_bonus,
+    hard_interval_factor,
+    ease_min,
+    ease_max,
+):
+    ease_clamped = torch.clamp(ease, min=ease_min, max=ease_max)
+    current_interval = torch.clamp(prev_interval, min=1.0)
+    is_new_card = prev_interval == 0
+    new_card_interval = torch.where(
+        grade < 4,
+        torch.full_like(prev_interval, graduating_interval),
+        torch.full_like(prev_interval, easy_interval),
+    )
+
+    is_early = elapsed < current_interval
+    hard_multiplier = hard_interval_factor
+    easy_multiplier = easy_bonus
+
+    if hard_multiplier <= 1.0:
+        hard_minimum = torch.zeros_like(current_interval)
+    else:
+        hard_minimum = current_interval + 1.0
+    hard_non_early = _constrain_passing_interval_tensor(
+        current_interval * hard_multiplier, hard_minimum
+    )
+    if hard_multiplier <= 1.0:
+        good_minimum = current_interval + 1.0
+    else:
+        good_minimum = hard_non_early + 1.0
+    days_late = torch.clamp(elapsed - current_interval, min=0.0)
+    good_non_early = _constrain_passing_interval_tensor(
+        (current_interval + days_late / 2.0) * ease_clamped, good_minimum
+    )
+    easy_non_early = _constrain_passing_interval_tensor(
+        (current_interval + days_late) * ease_clamped * easy_multiplier,
+        good_non_early + 1.0,
+    )
+
+    half_usual = hard_multiplier / 2.0
+    hard_early = _constrain_passing_interval_tensor(
+        torch.maximum(elapsed * hard_multiplier, current_interval * half_usual),
+        torch.zeros_like(current_interval),
+    )
+    good_early = _constrain_passing_interval_tensor(
+        torch.maximum(elapsed * ease_clamped, current_interval),
+        torch.zeros_like(current_interval),
+    )
+    reduced_bonus = easy_multiplier - (easy_multiplier - 1.0) / 2.0
+    easy_early = _constrain_passing_interval_tensor(
+        torch.maximum(elapsed * ease_clamped, current_interval) * reduced_bonus,
+        torch.zeros_like(current_interval),
+    )
+
+    hard_interval = torch.where(is_early, hard_early, hard_non_early)
+    good_interval = torch.where(is_early, good_early, good_non_early)
+    easy_interval_val = torch.where(is_early, easy_early, easy_non_early)
+
+    interval = torch.where(
+        is_new_card,
+        new_card_interval,
+        torch.where(
+            grade == 2,
+            hard_interval,
+            torch.where(grade == 4, easy_interval_val, good_interval),
+        ),
+    )
+    interval = torch.where(grade == 1, torch.ones_like(interval), interval)
+
+    new_ease = ease_clamped
+    new_ease = new_ease + -0.2 * (grade == 1).to(new_ease.dtype)
+    new_ease = new_ease + -0.15 * (grade == 2).to(new_ease.dtype)
+    new_ease = new_ease + 0.15 * (grade == 4).to(new_ease.dtype)
+    new_ease = torch.clamp(new_ease, min=ease_min, max=ease_max)
+
+    return interval, new_ease
+
+
 def make_anki_sm2_policy(w=None, s_max=S_MAX):
     if w is None:
         w = DEFAULT_W
@@ -52,60 +146,26 @@ def make_anki_sm2_policy(w=None, s_max=S_MAX):
         easy_interval = 4.0
         easy_bonus = 1.3
         hard_interval_factor = 1.2
-        new_interval = 0.0
-        interval_multiplier = 1.0
+        ease_min = 1.3
+        ease_max = 5.5
+        # No elapsed parameter in this policy API; assume on-time review.
+        elapsed = prev_interval
 
-        new_ease = torch.where(
-            grade == 1,
-            ease - 0.2,
-            torch.where(
-                grade == 2,
-                ease - 0.15,
-                torch.where(grade == 4, ease + 0.15, ease),
-            ),
-        )
-        new_ease = torch.clamp(new_ease, 1.3, 5.5)
-
-        is_new_card = prev_interval == 0
-
-        new_card_interval = torch.where(
-            grade < 4,
-            torch.full_like(prev_interval, graduating_interval),
-            torch.full_like(prev_interval, easy_interval),
-        )
-
-        days_late = torch.zeros_like(prev_interval)
-        elapsed = prev_interval + days_late
-
-        existing_card_interval = torch.where(
-            grade == 1,
-            prev_interval * new_interval,
-            torch.where(
-                grade == 2,
-                torch.maximum(
-                    elapsed * hard_interval_factor,
-                    prev_interval * hard_interval_factor / 2,
-                ),
-                torch.where(
-                    grade == 4,
-                    torch.maximum(elapsed * new_ease, prev_interval) * easy_bonus,
-                    torch.maximum(elapsed * new_ease, prev_interval),
-                ),
-            ),
-        )
-
-        existing_card_interval = existing_card_interval * interval_multiplier
-
-        result_interval = torch.where(
-            is_new_card, new_card_interval, existing_card_interval
-        )
-
-        result_interval = torch.maximum(
-            torch.ones_like(result_interval), result_interval
+        interval, new_ease = _anki_sm2_next_interval(
+            prev_interval,
+            elapsed,
+            grade,
+            ease,
+            graduating_interval=graduating_interval,
+            easy_interval=easy_interval,
+            easy_bonus=easy_bonus,
+            hard_interval_factor=hard_interval_factor,
+            ease_min=ease_min,
+            ease_max=ease_max,
         )
 
         final_interval = s_max_aware_fixed_interval(
-            stability, difficulty, result_interval, decay, w, s_max
+            stability, difficulty, interval, decay, w, s_max
         ).round()
 
         return final_interval, new_ease
